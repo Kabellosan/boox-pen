@@ -113,7 +113,30 @@ class PenIME : InputMethodService(), InkView.Listener {
         main.postDelayed(commitRunnable, commitDelayMs)
     }
 
-    private fun recognizeAndCommit(then: (() -> Unit)? = null) {
+    /**
+     * Eraser: over waiting ink it rubs out the strokes it touches. Over an empty
+     * strip it deletes the word before the cursor, one word per sweep.
+     */
+    override fun onErase(path: Stroke) {
+        main.removeCallbacks(commitRunnable)
+        if (ink.strokes.isNotEmpty()) {
+            ink.eraseAlong(path)
+            if (ink.strokes.isNotEmpty()) main.postDelayed(commitRunnable, commitDelayMs)
+            return
+        }
+        deleteLastWord()
+    }
+
+    /** Deletes the last word before the cursor, with the spaces after it. */
+    private fun deleteLastWord() {
+        val ic = currentInputConnection ?: return
+        lastCommitted = null
+        val before = ic.getTextBeforeCursor(64, 0)?.toString() ?: return
+        val word = Regex("\\S+\\s*$").find(before)?.value ?: before.takeLastWhile { it.isWhitespace() }
+        if (word.isNotEmpty()) ic.deleteSurroundingText(word.length, 0)
+    }
+
+        private fun recognizeAndCommit(then: (() -> Unit)? = null) {
         val strokes = ink.strokes.toList()
         if (strokes.isEmpty()) { then?.invoke(); return }
         val pre = currentInputConnection?.getTextBeforeCursor(20, 0)?.toString() ?: ""
