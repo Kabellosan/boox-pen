@@ -4,6 +4,9 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
@@ -42,6 +45,12 @@ class SetupActivity : Activity() {
             textSize = 18f
         })
         root.addView(EditText(this).apply { hint = "Write with the pen…" })
+        root.addView(TextView(this).apply {
+            text = "\nPen test: touch the box with the tip, the eraser, and the tip with the button held."
+            textSize = 18f
+        })
+        root.addView(penTestBox(), LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, (160 * resources.displayMetrics.density).toInt()))
 
         setContentView(root)
         refreshStatus()
@@ -69,6 +78,35 @@ class SetupActivity : Activity() {
                 }
             }
         }
+    }
+
+    /** Shows what Android reports for the pen: tool type and buttons, touching or hovering. */
+    private fun penTestBox(): View {
+        val box = TextView(this).apply {
+            textSize = 18f
+            gravity = Gravity.CENTER
+            text = "(nothing yet)"
+            setBackgroundResource(android.R.drawable.edit_text)
+        }
+        val report = { v: View, e: MotionEvent ->
+            val tool = when (e.getToolType(0)) {
+                MotionEvent.TOOL_TYPE_STYLUS -> "pen tip"
+                MotionEvent.TOOL_TYPE_ERASER -> "ERASER end"
+                MotionEvent.TOOL_TYPE_FINGER -> "finger"
+                else -> "tool ${e.getToolType(0)}"
+            }
+            val buttons = buildList {
+                if (e.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY != 0) add("side button 1")
+                if (e.buttonState and MotionEvent.BUTTON_STYLUS_SECONDARY != 0) add("side button 2")
+                if (e.buttonState and MotionEvent.BUTTON_SECONDARY != 0) add("secondary")
+            }.ifEmpty { listOf("no buttons") }
+            (v as TextView).text = "${MotionEvent.actionToString(e.actionMasked)}\n$tool · ${buttons.joinToString()}" +
+                "\nraw buttonState=${e.buttonState}"
+            true
+        }
+        box.setOnTouchListener { v, e -> report(v, e) }
+        box.setOnGenericMotionListener { v, e -> report(v, e) }
+        return box
     }
 
     private fun button(label: String, onClick: () -> Unit) = Button(this).apply {
