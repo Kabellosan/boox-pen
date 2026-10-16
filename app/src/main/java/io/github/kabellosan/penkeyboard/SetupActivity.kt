@@ -20,6 +20,7 @@ class SetupActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var updateStatus: TextView
     private lateinit var updateButton: Button
+    private lateinit var probeLog: TextView
     private lateinit var testBuilds: LinearLayout
     private var release: Updater.Release? = null
     private var updating = false
@@ -53,6 +54,16 @@ class SetupActivity : Activity() {
         root.addView(button("Pen shortcuts: taps, gestures, apps") {
             startActivity(Intent(this, ShortcutsActivity::class.java))
         })
+        root.addView(TextView(this).apply {
+            text = "\nButton in every app? Switch on \"Pen button probe\", then click the pen " +
+                "button (in the air and touching) in any other app and come back here."
+            textSize = 18f
+        })
+        root.addView(button("Open Accessibility settings") {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        })
+        probeLog = TextView(this).apply { textSize = 16f }
+        root.addView(probeLog)
         status = TextView(this).apply { textSize = 18f }
         root.addView(status)
         root.addView(TextView(this).apply {
@@ -71,6 +82,11 @@ class SetupActivity : Activity() {
         setContentView(ScrollView(this).apply { addView(root) })
         refreshStatus()
         checkForUpdate()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        probeLog.text = PenButtonProbe.log(this).ifEmpty { "Probe: no keys seen yet." }
     }
 
     override fun onDestroy() {
