@@ -10,6 +10,7 @@ import android.graphics.Rect
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
@@ -33,8 +34,8 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     interface Listener {
         fun onStrokeStart()
         fun onStrokeEnd()
-        /** The pen's eraser (end or side button) swept along [path]. */
-        fun onErase(path: Stroke)
+        /** The pen's eraser (end or side button) touched along [path] for [durationMs]. */
+        fun onErase(path: Stroke, durationMs: Long)
     }
 
     /** Strokes written since the last clear, in this view's pixel coordinates. */
@@ -44,6 +45,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     private var touchHelper: TouchHelper? = null
     private var current: Stroke? = null
     private var eraserPath: Stroke? = null
+    private var eraseStartedAt = 0L
 
     private val isBoox = Build.MANUFACTURER.equals("ONYX", ignoreCase = true)
     val usingOnyx get() = touchHelper != null
@@ -222,13 +224,14 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     private fun beginErase(x: Float, y: Float, t: Long) {
         current = null
         eraserPath = Stroke().also { it.add(x, y, t) }
+        eraseStartedAt = SystemClock.uptimeMillis()
     }
 
     private fun endErase(x: Float, y: Float, t: Long) {
         val path = eraserPath ?: return
         path.add(x, y, t)
         eraserPath = null
-        listener.onErase(path)
+        listener.onErase(path, SystemClock.uptimeMillis() - eraseStartedAt)
     }
 
     // ── Fallback for non-Boox devices (emulator, phone) ─────────────

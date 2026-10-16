@@ -88,7 +88,7 @@ class LauncherActivity : Activity(), InkView.Listener {
     }
 
     /** Eraser rubs out the strokes it touches; over an empty pad it starts over. */
-    override fun onErase(path: Stroke) {
+    override fun onErase(path: Stroke, durationMs: Long) {
         main.removeCallbacks(recognizeRunnable)
         if (ink.strokes.isEmpty()) { reset(); return }
         ink.eraseAlong(path)

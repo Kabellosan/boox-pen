@@ -8,7 +8,6 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.KeyEvent
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -45,19 +44,20 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     private val commitRunnable = Runnable { recognizeAndCommit() }
 
-    /** Pen side button: double click sends, triple click switches DA/EN, a long hold opens the launcher. */
-    private val penButton = StylusButton { gesture ->
-        when (gesture) {
-            StylusButton.Gesture.DOUBLE_CLICK -> flushThen { enter() }
-            StylusButton.Gesture.TRIPLE_CLICK -> toggleLanguage()
-            StylusButton.Gesture.HOLD -> openLauncher()
-        }
-    }
+    /** Side button held + taps: two send, three switch DA/EN, a long press opens the launcher. */
+    private lateinit var eraserTaps: EraserTaps
 
     override fun onCreate() {
         super.onCreate()
         recognizer = Recognizer()
         recognizer.downloadAll()
+        eraserTaps = EraserTaps(10 * resources.displayMetrics.density, { gesture ->
+            when (gesture) {
+                EraserTaps.Gesture.DOUBLE_TAP -> flushThen { enter() }
+                EraserTaps.Gesture.TRIPLE_TAP -> toggleLanguage()
+                EraserTaps.Gesture.LONG_PRESS -> openLauncher()
+            }
+        }, ::erase)
     }
 
     override fun onDestroy() {
@@ -70,22 +70,7 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onCreateInputView(): View {
         val dp = resources.displayMetrics.density
-        // The root sees every pen event over the keyboard, hovering or touching,
-        // and passes it to the side-button detector before the normal handling.
-        val root = object : LinearLayout(this) {
-            override fun dispatchHoverEvent(e: MotionEvent): Boolean {
-                penButton.feed(e)
-                return super.dispatchHoverEvent(e)
-            }
-            override fun dispatchGenericMotionEvent(e: MotionEvent): Boolean {
-                penButton.feed(e)
-                return super.dispatchGenericMotionEvent(e)
-            }
-            override fun dispatchTouchEvent(e: MotionEvent): Boolean {
-                penButton.feed(e)
-                return super.dispatchTouchEvent(e)
-            }
-        }.apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.WHITE)
         }
@@ -131,7 +116,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     // ── Pen events ──────────────────────────────────────────────────
 
     override fun onStrokeStart() {
-        penButton.penUsed()
+        eraserTaps.flush()
         main.removeCallbacks(commitRunnable)
     }
 
@@ -140,12 +125,15 @@ class PenIME : InputMethodService(), InkView.Listener {
         main.postDelayed(commitRunnable, commitDelayMs)
     }
 
+    override fun onErase(path: Stroke, durationMs: Long) {
+        eraserTaps.feed(path, durationMs)
+    }
+
     /**
      * Eraser: over waiting ink it rubs out the strokes it touches. Over an empty
      * strip it deletes the word before the cursor, one word per sweep.
      */
-    override fun onErase(path: Stroke) {
-        penButton.penUsed()
+    private fun erase(path: Stroke) {
         main.removeCallbacks(commitRunnable)
         if (ink.strokes.isNotEmpty()) {
             ink.eraseAlong(path)
@@ -164,7 +152,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (word.isNotEmpty()) ic.deleteSurroundingText(word.length, 0)
     }
 
-        private fun recognizeAndCommit(then: (() -> Unit)? = null) {
+    private fun recognizeAndCommit(then: (() -> Unit)? = null) {
         val strokes = ink.strokes.toList()
         if (strokes.isEmpty()) { then?.invoke(); return }
         val pre = currentInputConnection?.getTextBeforeCursor(20, 0)?.toString() ?: ""
