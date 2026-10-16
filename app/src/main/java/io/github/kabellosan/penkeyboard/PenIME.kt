@@ -1,5 +1,6 @@
 package io.github.kabellosan.penkeyboard
 
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
@@ -7,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -43,6 +45,15 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     private val commitRunnable = Runnable { recognizeAndCommit() }
 
+    /** Pen side button: double click sends, triple click switches DA/EN, a long hold opens the launcher. */
+    private val penButton = StylusButton { gesture ->
+        when (gesture) {
+            StylusButton.Gesture.DOUBLE_CLICK -> flushThen { enter() }
+            StylusButton.Gesture.TRIPLE_CLICK -> toggleLanguage()
+            StylusButton.Gesture.HOLD -> openLauncher()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         recognizer = Recognizer()
@@ -59,7 +70,22 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onCreateInputView(): View {
         val dp = resources.displayMetrics.density
-        val root = LinearLayout(this).apply {
+        // The root sees every pen event over the keyboard, hovering or touching,
+        // and passes it to the side-button detector before the normal handling.
+        val root = object : LinearLayout(this) {
+            override fun dispatchHoverEvent(e: MotionEvent): Boolean {
+                penButton.feed(e)
+                return super.dispatchHoverEvent(e)
+            }
+            override fun dispatchGenericMotionEvent(e: MotionEvent): Boolean {
+                penButton.feed(e)
+                return super.dispatchGenericMotionEvent(e)
+            }
+            override fun dispatchTouchEvent(e: MotionEvent): Boolean {
+                penButton.feed(e)
+                return super.dispatchTouchEvent(e)
+            }
+        }.apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.WHITE)
         }
@@ -105,6 +131,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     // ── Pen events ──────────────────────────────────────────────────
 
     override fun onStrokeStart() {
+        penButton.penUsed()
         main.removeCallbacks(commitRunnable)
     }
 
@@ -118,6 +145,7 @@ class PenIME : InputMethodService(), InkView.Listener {
      * strip it deletes the word before the cursor, one word per sweep.
      */
     override fun onErase(path: Stroke) {
+        penButton.penUsed()
         main.removeCallbacks(commitRunnable)
         if (ink.strokes.isNotEmpty()) {
             ink.eraseAlong(path)
@@ -224,6 +252,12 @@ class PenIME : InputMethodService(), InkView.Listener {
     private fun toggleLanguage() {
         activeLang = if (activeLang == "da") "en" else "da"
         langKey.text = activeLang.uppercase()
+    }
+
+    private fun openLauncher() {
+        flushThen {
+            startActivity(Intent(this, LauncherActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
 
     private fun switchKeyboard() {

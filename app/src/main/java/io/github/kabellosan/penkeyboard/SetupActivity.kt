@@ -46,7 +46,8 @@ class SetupActivity : Activity() {
         })
         root.addView(EditText(this).apply { hint = "Write with the pen…" })
         root.addView(TextView(this).apply {
-            text = "\nPen test: touch the box with the tip, the eraser, and the tip with the button held."
+            text = "\nPen test: touch the box with the tip and with the button held. " +
+                "Then hover just above it and click the button: the counter shows if clicks get through."
             textSize = 18f
         })
         root.addView(penTestBox(), LinearLayout.LayoutParams(
@@ -82,6 +83,9 @@ class SetupActivity : Activity() {
 
     /** Shows what Android reports for the pen: tool type and buttons, touching or hovering. */
     private fun penTestBox(): View {
+        var lastGesture = "none yet"
+        var refresh: () -> Unit = {}
+        val button = StylusButton { lastGesture = it.name.lowercase().replace('_', ' '); refresh() }
         val box = TextView(this).apply {
             textSize = 18f
             gravity = Gravity.CENTER
@@ -100,12 +104,16 @@ class SetupActivity : Activity() {
                 if (e.buttonState and MotionEvent.BUTTON_STYLUS_SECONDARY != 0) add("side button 2")
                 if (e.buttonState and MotionEvent.BUTTON_SECONDARY != 0) add("secondary")
             }.ifEmpty { listOf("no buttons") }
-            (v as TextView).text = "${MotionEvent.actionToString(e.actionMasked)}\n$tool · ${buttons.joinToString()}" +
+            button.feed(e)
+            val line = "${MotionEvent.actionToString(e.actionMasked)}\n$tool · ${buttons.joinToString()}" +
                 "\nraw buttonState=${e.buttonState}"
+            refresh = { (v as TextView).text = "$line\nbutton gesture: $lastGesture" }
+            refresh()
             true
         }
         box.setOnTouchListener { v, e -> report(v, e) }
         box.setOnGenericMotionListener { v, e -> report(v, e) }
+        box.setOnHoverListener { v, e -> report(v, e) }
         return box
     }
 
