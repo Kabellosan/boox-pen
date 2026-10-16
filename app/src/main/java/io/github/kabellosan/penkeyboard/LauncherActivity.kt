@@ -87,6 +87,14 @@ class LauncherActivity : Activity(), InkView.Listener {
         main.postDelayed(recognizeRunnable, pauseMs)
     }
 
+    /** Eraser rubs out the strokes it touches; over an empty pad it starts over. */
+    override fun onErase(path: Stroke) {
+        main.removeCallbacks(recognizeRunnable)
+        if (ink.strokes.isEmpty()) { reset(); return }
+        ink.eraseAlong(path)
+        if (ink.strokes.isNotEmpty()) main.postDelayed(recognizeRunnable, pauseMs)
+    }
+
     /** Reads the ink in both languages, then matches all guesses against app names. */
     private fun recognize() {
         val strokes = ink.strokes.toList()
