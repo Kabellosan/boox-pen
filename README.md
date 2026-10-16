@@ -26,6 +26,14 @@ the same checked-in debug key, so a new one installs over the old one.
   `space`, `⌫` (clears unrecognized ink first, otherwise deletes a character),
   `⏎` (shows **Send** in chat apps and sends; long-press for a new line).
 
+## Pen Launcher
+
+The app also installs a second icon, **Pen Launcher**. Write an app name ("Tele")
+and lift the pen: if exactly one app's name starts with it, that app opens;
+otherwise up to four matches are shown to tap.
+To open it with a hardware button: Boox Settings → button settings → map a button
+to open the **Pen Launcher** app.
+
 ## Code
 
 - `InkView.kt`: the writing strip. Onyx `TouchHelper` raw drawing on a Boox,
@@ -34,4 +42,5 @@ the same checked-in debug key, so a new one installs over the old one.
 - `Recognizer.kt`: ML Kit Digital Ink, one recognizer per language.
 - `PenIME.kt`: the keyboard service: commit timing, spacing, candidates, keys.
 - `PenApp.kt`: hidden-API exemptions the Onyx SDK needs (hence `targetSdk 29`).
-- `SetupActivity.kt`: the launcher screen.
+- `SetupActivity.kt`: the setup screen.
+- `LauncherActivity.kt`, `AppMatcher.kt`: Pen Launcher (handwriting → open app).
