@@ -46,8 +46,8 @@ class SetupActivity : Activity() {
         })
         root.addView(EditText(this).apply { hint = "Write with the pen…" })
         root.addView(TextView(this).apply {
-            text = "\nPen test: touch the box with the tip and with the button held. " +
-                "Then hover just above it and click the button: the counter shows if clicks get through."
+            text = "\nPen test: touch the box with the tip, then hold the button and tap it " +
+                "twice, three times, or press and hold."
             textSize = 18f
         })
         root.addView(penTestBox(), LinearLayout.LayoutParams(
@@ -85,7 +85,11 @@ class SetupActivity : Activity() {
     private fun penTestBox(): View {
         var lastGesture = "none yet"
         var refresh: () -> Unit = {}
-        val button = StylusButton { lastGesture = it.name.lowercase().replace('_', ' '); refresh() }
+        val taps = EraserTaps(10 * resources.displayMetrics.density,
+            { lastGesture = it.name.lowercase().replace('_', ' '); refresh() },
+            { lastGesture = "erase"; refresh() })
+        var path: Stroke? = null
+        var downAt = 0L
         val box = TextView(this).apply {
             textSize = 18f
             gravity = Gravity.CENTER
@@ -104,10 +108,14 @@ class SetupActivity : Activity() {
                 if (e.buttonState and MotionEvent.BUTTON_STYLUS_SECONDARY != 0) add("side button 2")
                 if (e.buttonState and MotionEvent.BUTTON_SECONDARY != 0) add("secondary")
             }.ifEmpty { listOf("no buttons") }
-            button.feed(e)
+            if (e.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER) when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { path = Stroke().apply { add(e.x, e.y, e.eventTime) }; downAt = e.eventTime }
+                MotionEvent.ACTION_MOVE -> path?.add(e.x, e.y, e.eventTime)
+                MotionEvent.ACTION_UP -> path?.let { taps.feed(it, e.eventTime - downAt); path = null }
+            }
             val line = "${MotionEvent.actionToString(e.actionMasked)}\n$tool · ${buttons.joinToString()}" +
                 "\nraw buttonState=${e.buttonState}"
-            refresh = { (v as TextView).text = "$line\nbutton gesture: $lastGesture" }
+            refresh = { (v as TextView).text = "$line\neraser gesture: $lastGesture" }
             refresh()
             true
         }
