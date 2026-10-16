@@ -16,6 +16,11 @@ Status: bare-bones first version. Text mode only.
 Every push to `main` builds a new APK with GitHub Actions. All builds are signed with
 the same checked-in debug key, so a new one installs over the old one.
 
+After the first install, update from inside the app: the **Pen Keyboard** app shows
+which build is installed and whether a newer one is on the Releases page. Tap
+**Update to build N**; the first time, Android asks you to allow Pen Keyboard to
+install apps (switch it on, go back, tap Update again).
+
 ## How it works
 
 - Write a word in the strip. After a short pause (0.7 s) it is recognized in

@@ -1,0 +1,4 @@
+<paths>
+    <!-- Downloaded update APKs, handed to Android's package installer. -->
+    <cache-path name="updates" path="updates/" />
+</paths>

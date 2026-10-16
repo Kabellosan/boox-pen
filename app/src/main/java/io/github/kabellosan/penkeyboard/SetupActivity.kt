@@ -17,6 +17,10 @@ import android.widget.TextView
 class SetupActivity : Activity() {
 
     private lateinit var status: TextView
+    private lateinit var updateStatus: TextView
+    private lateinit var updateButton: Button
+    private var release: Updater.Release? = null
+    private var updating = false
     private val recognizer = Recognizer()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,6 +35,10 @@ class SetupActivity : Activity() {
             text = "Pen Keyboard"
             textSize = 28f
         })
+        updateStatus = TextView(this).apply { textSize = 18f }
+        root.addView(updateStatus)
+        updateButton = button("Check for update") { onUpdateTapped() }
+        root.addView(updateButton)
         root.addView(button("1. Turn on Pen Keyboard") {
             startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
         })
@@ -55,6 +63,7 @@ class SetupActivity : Activity() {
 
         setContentView(root)
         refreshStatus()
+        checkForUpdate()
     }
 
     override fun onDestroy() {
@@ -67,6 +76,66 @@ class SetupActivity : Activity() {
         recognizer.downloadAll()
             .addOnSuccessListener { refreshStatus() }
             .addOnFailureListener { status.text = "Download failed: ${it.message}" }
+    }
+
+    private fun checkForUpdate() {
+        val installed = Updater.installedBuild(this)
+        updateStatus.text = "Build $installed installed. Checking GitHub…"
+        background({ Updater.latest() }) { latest, error ->
+            release = latest
+            when {
+                latest == null -> {
+                    updateStatus.text = "Build $installed installed. Couldn't check: ${error?.message}"
+                    updateButton.text = "Check for update"
+                }
+                latest.build > installed -> {
+                    updateStatus.text = "Build $installed installed. Build ${latest.build} is out" +
+                        (if (latest.notes.isNotBlank()) ":\n${latest.notes.lines().first()}" else ".")
+                    updateButton.text = "Update to build ${latest.build}"
+                }
+                else -> {
+                    updateStatus.text = "Build $installed installed. Up to date."
+                    updateButton.text = "Check for update"
+                }
+            }
+        }
+    }
+
+    private fun onUpdateTapped() {
+        if (updating) return
+        val latest = release
+        if (latest == null || latest.build <= Updater.installedBuild(this)) return checkForUpdate()
+        if (!Updater.canInstall(this)) {
+            // Android asks once per app: allow Pen Keyboard to install apps.
+            updateStatus.text = "Allow Pen Keyboard to install apps (switch it on), then come back and tap Update again."
+            startActivity(Updater.allowInstallsIntent(this))
+            return
+        }
+        updating = true
+        updateStatus.text = "Downloading build ${latest.build}…"
+        background({
+            Updater.download(this, latest) { pct ->
+                if (pct >= 0) runOnUiThread { updateStatus.text = "Downloading build ${latest.build}… $pct%" }
+            }
+        }) { apk, error ->
+            updating = false
+            if (apk == null) {
+                updateStatus.text = "Download failed: ${error?.message}"
+            } else {
+                updateStatus.text = "Build ${latest.build} downloaded. Tap Install when Android asks."
+                startActivity(Updater.installIntent(this, apk))
+            }
+        }
+    }
+
+    /** Runs [work] on a background thread, then [done] on the UI thread if the screen is still open. */
+    private fun <T> background(work: () -> T, done: (T?, Throwable?) -> Unit) {
+        Thread {
+            val result = runCatching(work)
+            runOnUiThread {
+                if (!isDestroyed) done(result.getOrNull(), result.exceptionOrNull())
+            }
+        }.start()
     }
 
     private fun refreshStatus() {

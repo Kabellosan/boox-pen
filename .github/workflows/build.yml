@@ -44,4 +44,4 @@ jobs:
             "pen-keyboard-${{ github.run_number }}.apk" \
             --target "${{ github.sha }}" \
             --title "Build ${{ github.run_number }}" \
-            --notes "Debug build of ${{ github.sha }}."
+            --notes "$(git log -1 --pretty=%s)"
