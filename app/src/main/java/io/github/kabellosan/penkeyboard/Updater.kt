@@ -38,6 +38,7 @@ object Updater {
         return (0 until all.length()).map { all.getJSONObject(it) }
             .filter { it.optBoolean("prerelease") }
             .mapNotNull { runCatching { parse(it) }.getOrNull() }
+            .sortedByDescending { it.build }
     }
 
     private fun parse(json: JSONObject): Release {
