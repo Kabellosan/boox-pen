@@ -44,20 +44,19 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     private val commitRunnable = Runnable { recognizeAndCommit() }
 
-    /** Side button held + taps: two send, three switch DA/EN, a long press opens the launcher. */
-    private lateinit var eraserTaps: EraserTaps
+    /** Side button held + taps, a press, or a drawn shape: actions set in Pen shortcuts. */
+    private lateinit var buttonGestures: ButtonGestures
+    private lateinit var shortcuts: Shortcuts
 
     override fun onCreate() {
         super.onCreate()
         recognizer = Recognizer()
         recognizer.downloadAll()
-        eraserTaps = EraserTaps(10 * resources.displayMetrics.density, { gesture ->
-            when (gesture) {
-                EraserTaps.Gesture.DOUBLE_TAP -> flushThen { enter() }
-                EraserTaps.Gesture.TRIPLE_TAP -> toggleLanguage()
-                EraserTaps.Gesture.LONG_PRESS -> openLauncher()
-            }
-        }, ::erase)
+        shortcuts = Shortcuts(this)
+        buttonGestures = ButtonGestures(10 * resources.displayMetrics.density,
+            { trigger -> perform(shortcuts.action(trigger)) },
+            ::onShape,
+            ::erase)
     }
 
     override fun onDestroy() {
@@ -116,7 +115,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     // ── Pen events ──────────────────────────────────────────────────
 
     override fun onStrokeStart() {
-        eraserTaps.flush()
+        buttonGestures.flush()
         main.removeCallbacks(commitRunnable)
     }
 
@@ -125,22 +124,56 @@ class PenIME : InputMethodService(), InkView.Listener {
         main.postDelayed(commitRunnable, commitDelayMs)
     }
 
-    override fun onErase(path: Stroke, durationMs: Long) {
-        eraserTaps.feed(path, durationMs)
-    }
-
     /**
-     * Eraser: over waiting ink it rubs out the strokes it touches. Over an empty
-     * strip it deletes the word before the cursor, one word per sweep.
+     * Button held down. Over waiting ink a sweep rubs out what it touches; taps,
+     * presses, and anything drawn on an empty strip are shortcuts.
      */
-    private fun erase(path: Stroke) {
-        main.removeCallbacks(commitRunnable)
-        if (ink.strokes.isNotEmpty()) {
-            ink.eraseAlong(path)
-            if (ink.strokes.isNotEmpty()) main.postDelayed(commitRunnable, commitDelayMs)
+    override fun onErase(path: Stroke, durationMs: Long) {
+        if (ink.strokes.isNotEmpty() && !buttonGestures.pending && !buttonGestures.isStill(path)) {
+            erase(path)
             return
         }
-        deleteLastWord()
+        main.removeCallbacks(commitRunnable)
+        buttonGestures.feed(path, durationMs)
+    }
+
+    /** Rubs out the waiting strokes that [path] touches. */
+    private fun erase(path: Stroke) {
+        main.removeCallbacks(commitRunnable)
+        if (ink.strokes.isEmpty()) return
+        ink.eraseAlong(path)
+        if (ink.strokes.isNotEmpty()) main.postDelayed(commitRunnable, commitDelayMs)
+    }
+
+    /** A shape drawn with the button held: run the shortcut it matches, if any. */
+    private fun onShape(strokes: List<Stroke>) {
+        val match = shortcuts.match(strokes, packageManager)
+        if (match == null) {
+            showMessage("No shortcut for that shape")
+            perform(Action.NONE)
+            return
+        }
+        perform(match.action)
+    }
+
+    /** Runs a shortcut's action. */
+    private fun perform(action: Action) {
+        when (action) {
+            Action.NONE -> {}
+            Action.SEND -> flushThen { enter() }
+            Action.LANG -> toggleLanguage()
+            Action.QUICK_PAD -> openLauncher()
+            Action.DELETE_WORD -> {
+                main.removeCallbacks(commitRunnable)
+                if (ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()
+            }
+            else -> action.app?.let { app -> flushThen { startActivity(Action.launchIntent(app)) } }
+        }
+        // Button taps pause the commit timer; ink still waiting gets read as usual.
+        if (ink.strokes.isNotEmpty()) {
+            main.removeCallbacks(commitRunnable)
+            main.postDelayed(commitRunnable, commitDelayMs)
+        }
     }
 
     /** Deletes the last word before the cursor, with the spaces after it. */
@@ -255,6 +288,19 @@ class PenIME : InputMethodService(), InkView.Listener {
     }
 
     // ── UI helpers ──────────────────────────────────────────────────
+
+    /** Shows a short note in the candidate row. */
+    private fun showMessage(text: String) {
+        candidateRow.removeAllViews()
+        candidateRow.addView(TextView(this).apply {
+            this.text = text
+            textSize = 18f
+            gravity = Gravity.CENTER_VERTICAL
+            setTextColor(Color.DKGRAY)
+            val pad = (12 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+    }
 
     /** Shows the active language's guesses first, then the other language's. */
     private fun showCandidates(results: Map<String, List<String>>) {

@@ -23,6 +23,16 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ShortcutsActivity"
+            android:exported="false"
+            android:label="Pen shortcuts" />
+
+        <activity
+            android:name=".RecordGestureActivity"
+            android:exported="false"
+            android:label="Record a gesture" />
+
         <!-- Second home-screen icon: map a Boox button to open it. -->
         <activity
             android:name=".LauncherActivity"

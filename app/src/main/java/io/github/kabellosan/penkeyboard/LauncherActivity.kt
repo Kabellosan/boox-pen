@@ -1,7 +1,6 @@
 package io.github.kabellosan.penkeyboard
 
 import android.app.Activity
-import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -14,7 +13,8 @@ import android.widget.TextView
 import androidx.core.view.doOnLayout
 
 /**
- * Pen launcher: write an app name ("Tele") and that app opens.
+ * Pen launcher, also called the quick pad: write an app name ("Tele") and that
+ * app opens, or draw one of your recorded gestures (Pen shortcuts) to run it.
  * Has its own home-screen icon so a Boox button can be mapped to open it.
  *
  * Uses the keyboard's InkView (Onyx fast ink) and Recognizer (da + en).
@@ -24,6 +24,7 @@ class LauncherActivity : Activity(), InkView.Listener {
     private val main = Handler(Looper.getMainLooper())
     private lateinit var recognizer: Recognizer
     private lateinit var matcher: AppMatcher
+    private lateinit var shortcuts: Shortcuts
     private lateinit var status: TextView
     private lateinit var ink: InkView
     private lateinit var choices: LinearLayout
@@ -36,6 +37,7 @@ class LauncherActivity : Activity(), InkView.Listener {
         recognizer = Recognizer()
         recognizer.downloadAll()
         matcher = AppMatcher(packageManager, packageName)
+        shortcuts = Shortcuts(this)
 
         val dp = resources.displayMetrics.density
         status = TextView(this).apply {
@@ -95,10 +97,18 @@ class LauncherActivity : Activity(), InkView.Listener {
         if (ink.strokes.isNotEmpty()) main.postDelayed(recognizeRunnable, pauseMs)
     }
 
-    /** Reads the ink in both languages, then matches all guesses against app names. */
+    /**
+     * A recorded gesture that opens an app wins. Otherwise the ink is read in
+     * both languages and all guesses are matched against app names.
+     */
     private fun recognize() {
         val strokes = ink.strokes.toList()
         if (strokes.isEmpty()) return
+        shortcuts.matchGesture(strokes)?.first?.action?.app?.let { app ->
+            startActivity(Action.launchIntent(app))
+            finish()
+            return
+        }
         val w = ink.width.toFloat()
         val h = ink.height.toFloat()
         val results = HashMap<String, List<String>>()
@@ -140,12 +150,7 @@ class LauncherActivity : Activity(), InkView.Listener {
     }
 
     private fun launch(app: AppEntry) {
-        startActivity(
-            Intent(Intent.ACTION_MAIN)
-                .addCategory(Intent.CATEGORY_LAUNCHER)
-                .setComponent(app.component)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
-        )
+        startActivity(Action.launchIntent(app.component))
         finish()
     }
 
@@ -153,7 +158,7 @@ class LauncherActivity : Activity(), InkView.Listener {
         main.removeCallbacks(recognizeRunnable)
         ink.clear()
         choices.removeAllViews()
-        status.text = "Write an app name"
+        status.text = "Write an app name or draw a gesture"
     }
 
     private fun button(label: String, onClick: () -> Unit) = TextView(this).apply {
