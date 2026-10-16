@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">Pen Keyboard</string>
     <string name="ime_name">Pen Keyboard</string>
+    <string name="launcher_name">Pen Launcher</string>
 </resources>

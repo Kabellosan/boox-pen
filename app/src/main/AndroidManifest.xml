@@ -21,6 +21,21 @@
             </intent-filter>
         </activity>
 
+        <!-- Second home-screen icon: map a Boox button to open it. -->
+        <activity
+            android:name=".LauncherActivity"
+            android:exported="true"
+            android:label="@string/launcher_name"
+            android:launchMode="singleTask"
+            android:taskAffinity="io.github.kabellosan.penkeyboard.launcher"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".PenIME"
             android:exported="true"
