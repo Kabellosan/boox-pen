@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -19,22 +20,34 @@ import java.net.URL
  * Blocking calls: run them off the main thread.
  */
 object Updater {
-    private const val LATEST = "https://api.github.com/repos/Kabellosan/boox-pen/releases/latest"
+    private const val RELEASES = "https://api.github.com/repos/Kabellosan/boox-pen/releases"
+    private const val LATEST = "$RELEASES/latest"
 
-    class Release(val build: Long, val apkUrl: String, val notes: String)
+    class Release(val build: Long, val apkUrl: String, val notes: String, val title: String)
 
     fun installedBuild(context: Context): Long {
         val info = context.packageManager.getPackageInfo(context.packageName, 0)
         return if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
     }
 
-    fun latest(): Release {
-        val json = JSONObject(open(LATEST).inputStream.bufferedReader().use { it.readText() })
-        val build = json.getString("tag_name").removePrefix("build-").toLong()
+    fun latest(): Release = parse(JSONObject(get(LATEST)))
+
+    /** Pre-releases CI makes for open PRs (tag `prX-build-N`), newest first. */
+    fun testBuilds(): List<Release> {
+        val all = JSONArray(get("$RELEASES?per_page=30"))
+        return (0 until all.length()).map { all.getJSONObject(it) }
+            .filter { it.optBoolean("prerelease") }
+            .mapNotNull { runCatching { parse(it) }.getOrNull() }
+            .sortedByDescending { it.build }
+    }
+
+    private fun parse(json: JSONObject): Release {
+        val build = json.getString("tag_name").substringAfterLast("build-").toLong()
         val assets = json.getJSONArray("assets")
         val apk = (0 until assets.length()).map { assets.getJSONObject(it) }
             .first { it.getString("name").endsWith(".apk") }
-        return Release(build, apk.getString("browser_download_url"), json.optString("body"))
+        return Release(build, apk.getString("browser_download_url"), json.optString("body"),
+            json.optString("name"))
     }
 
     /** Downloads the APK into the cache, reporting progress as 0..100. */
@@ -75,6 +88,8 @@ object Updater {
             .setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
     }
+
+    private fun get(url: String) = open(url).inputStream.bufferedReader().use { it.readText() }
 
     private fun open(url: String): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {

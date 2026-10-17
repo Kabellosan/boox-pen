@@ -19,6 +19,7 @@ class SetupActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var updateStatus: TextView
     private lateinit var updateButton: Button
+    private lateinit var testBuilds: LinearLayout
     private var release: Updater.Release? = null
     private var updating = false
     private val recognizer = Recognizer()
@@ -39,6 +40,8 @@ class SetupActivity : Activity() {
         root.addView(updateStatus)
         updateButton = button("Check for update") { onUpdateTapped() }
         root.addView(updateButton)
+        testBuilds = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        root.addView(testBuilds)
         root.addView(button("1. Turn on Pen Keyboard") {
             startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
         })
@@ -99,15 +102,29 @@ class SetupActivity : Activity() {
                 }
             }
         }
+        // Test builds of open PRs, to try a change before it is merged. Only newer
+        // ones: Android refuses to install a lower versionCode over a higher one.
+        background({ Updater.testBuilds() }) { builds, _ ->
+            testBuilds.removeAllViews()
+            for (b in builds.orEmpty().filter { it.build > installed }.take(3)) {
+                testBuilds.addView(button("Try ${b.title.ifBlank { "test build ${b.build}" }}: ${b.notes}") {
+                    install(b)
+                })
+            }
+        }
     }
 
     private fun onUpdateTapped() {
-        if (updating) return
         val latest = release
         if (latest == null || latest.build <= Updater.installedBuild(this)) return checkForUpdate()
+        install(latest)
+    }
+
+    private fun install(latest: Updater.Release) {
+        if (updating) return
         if (!Updater.canInstall(this)) {
             // Android asks once per app: allow Pen Keyboard to install apps.
-            updateStatus.text = "Allow Pen Keyboard to install apps (switch it on), then come back and tap Update again."
+            updateStatus.text = "Allow Pen Keyboard to install apps (switch it on), then come back and tap the button again."
             startActivity(Updater.allowInstallsIntent(this))
             return
         }

@@ -21,6 +21,11 @@ which build is installed and whether a newer one is on the Releases page. Tap
 **Update to build N**; the first time, Android asks you to allow Pen Keyboard to
 install apps (switch it on, go back, tap Update again).
 
+Open pull requests also get a **test build** (a pre-release on the Releases page).
+The app lists any that are newer than what is installed as **Try test build N**,
+so a change can be tried on the tablet before it is merged. Closing the PR removes
+its test build; the next build from `main` installs over it.
+
 ## How it works
 
 - Write a word in the strip. After a short pause (0.7 s) it is recognized in
