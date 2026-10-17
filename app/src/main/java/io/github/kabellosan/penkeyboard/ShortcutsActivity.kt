@@ -131,7 +131,7 @@ class ShortcutsActivity : Activity() {
         }
 
         private fun pickApp(context: Context, onCancel: () -> Unit, onPick: (Action) -> Unit) {
-            val apps = AppMatcher(context.packageManager, context.packageName).apps.sortedBy { it.label.lowercase() }
+            val apps = AppMatcher(context).apps.sortedBy { it.label.lowercase() }
             AlertDialog.Builder(context)
                 .setTitle("Open which app?")
                 .setItems(apps.map { it.label }.toTypedArray()) { _, which -> onPick(Action.openApp(apps[which].component)) }
