@@ -47,6 +47,22 @@
                 android:resource="@xml/pen_button_probe" />
         </service>
 
+        <!-- Third home-screen icon: map a smart button (long press) to write over any app. -->
+        <activity
+            android:name=".PenPadActivity"
+            android:exported="true"
+            android:label="@string/pad_name"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:launchMode="singleTask"
+            android:taskAffinity="io.github.kabellosan.penkeyboard.pad"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!-- Second home-screen icon: map a Boox button to open it. -->
         <activity
             android:name=".LauncherActivity"

@@ -54,6 +54,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         recognizer = Recognizer()
         recognizer.downloadAll()
         shortcuts = Shortcuts(this)
+        activeLang = Shortcuts.language(this)
         buttonGestures = ButtonGestures(10 * resources.displayMetrics.density,
             { trigger -> perform(shortcuts.action(trigger)) },
             ::onShape,
@@ -85,7 +86,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         root.addView(ink, LinearLayout.LayoutParams(MATCH_PARENT, (200 * dp).toInt()))
 
         val keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        langKey = key("DA") { toggleLanguage() }
+        langKey = key(activeLang.uppercase()) { toggleLanguage() }
         keys.addView(langKey, weight(1f))
         keys.addView(key("⌨") { switchKeyboard() }, weight(1f))
         keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(3f))
@@ -101,6 +102,8 @@ class PenIME : InputMethodService(), InkView.Listener {
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         lastCommitted = null
+        activeLang = Shortcuts.language(this)
+        langKey.text = activeLang.uppercase()
         showCandidates(emptyMap())
         enterKey.text = if (sendsAction(info)) "Send" else "⏎"
         ink.post { ink.startPen() }
@@ -274,6 +277,7 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     private fun toggleLanguage() {
         activeLang = if (activeLang == "da") "en" else "da"
+        Shortcuts.setLanguage(this, activeLang)
         langKey.text = activeLang.uppercase()
     }
 

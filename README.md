@@ -57,6 +57,17 @@ Shapes are matched with the $P point-cloud recognizer against your own samples, 
 the device, so stroke order and direction don't matter. The pen test box in the app
 shows what a button-held drawing was recorded as and how close it came to a gesture.
 
+## Pen Pad (write over any app)
+
+A third icon, **Pen Pad**, opens a see-through writing layer over whatever app is
+open. Map a Boox smart button (long press) to it. Tap a text field in the app,
+press the button, and write anywhere on the screen: each word goes into that
+field. Button-held taps and shapes work as on the keyboard. **Send** presses the
+field's send action, **Done** closes the pad.
+
+It needs **Pen Keyboard helper** switched on (Accessibility settings): the helper
+remembers the last text field you tapped in another app and writes into it.
+
 ## Pen Launcher (quick pad)
 
 The app also installs a second icon, **Pen Launcher**. Write an app name ("Tele")
@@ -78,3 +89,5 @@ to open the **Pen Launcher** app.
 - `ButtonGestures.kt`: groups button-held contacts into taps, a press, or a drawn shape.
 - `Shortcuts.kt`: shortcut settings, actions, and the $P shape matcher.
 - `ShortcutsActivity.kt`, `RecordGestureActivity.kt`: the Pen shortcuts screens.
+- `PenPadActivity.kt`: Pen Pad. `PenButtonProbe.kt`: the accessibility helper (text
+  field access for Pen Pad, Back, key probe).

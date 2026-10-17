@@ -156,7 +156,17 @@ class Shortcuts(context: Context) {
         }
     }
 
-    companion object { private const val GESTURES = "gestures" }
+    companion object {
+        private const val GESTURES = "gestures"
+        private const val LANG = "lang"
+
+        /** The language whose best guess is typed, shared by the keyboard and Pen Pad. */
+        fun language(context: Context): String =
+            context.getSharedPreferences("shortcuts", Context.MODE_PRIVATE).getString(LANG, null) ?: "da"
+
+        fun setLanguage(context: Context, lang: String) =
+            context.getSharedPreferences("shortcuts", Context.MODE_PRIVATE).edit().putString(LANG, lang).apply()
+    }
 }
 
 /**

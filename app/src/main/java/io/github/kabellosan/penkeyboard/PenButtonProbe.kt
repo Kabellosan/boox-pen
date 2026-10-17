@@ -3,19 +3,25 @@ package io.github.kabellosan.penkeyboard
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
+import android.os.Build
+import android.os.Bundle
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
  * Pen Keyboard helper, an accessibility service (off until switched on):
+ * - lets Pen Pad write into the text field you were using in another app;
  * - lets the Go back shortcut press Android's real Back button;
  * - probes whether the pen's side button sends anything the whole system can see.
  *
+ * Text fields: it remembers the last editable field that got focus in another
+ * app, and only reads or changes that field when Pen Pad asks it to.
  *
- * Apps only get pen strokes inside their own windows, so button-held drawing
+ * Probe: apps only get pen strokes inside their own windows, so button-held drawing
  * can't work everywhere. But an accessibility service sees hardware key events
  * from every app. If the Go 7's button sends one, a button click anywhere could
  * open the quick pad. This service only records which keys arrive (never what
@@ -46,7 +52,72 @@ class PenButtonProbe : AccessibilityService() {
         return false
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val node = event?.source ?: return
+        if (node.isEditable && node.packageName?.toString() != packageName) target = node
+    }
+
+    // ── Text field of the app underneath Pen Pad ────────────────────
+
+    /** The last editable field focused in another app. */
+    private var target: AccessibilityNodeInfo? = null
+
+    /** A short name for where text will go, or null if there is no field. */
+    fun targetLabel(): String? {
+        val n = target ?: return null
+        if (!n.refresh()) return null
+        val app = n.packageName?.toString()?.let { pkg ->
+            runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrNull()
+        }
+        val hint = n.hintText?.toString()?.takeIf { it.isNotBlank() }
+        return listOfNotNull(app, hint).joinToString(": ").ifEmpty { "text field" }
+    }
+
+    /** Up to [n] characters before the cursor in the target field. */
+    fun textBeforeCursor(n: Int): String {
+        val (text, start, _) = fieldState() ?: return ""
+        return text.substring(maxOf(0, start - n), start)
+    }
+
+    /**
+     * Deletes [deleteBefore] characters before the cursor (and any selection),
+     * inserts [insert], and puts the cursor after it. False if it didn't work.
+     */
+    fun edit(deleteBefore: Int, insert: String): Boolean {
+        val n = target ?: return false
+        val (text, start, end) = fieldState() ?: return false
+        val from = maxOf(0, start - deleteBefore)
+        val updated = text.substring(0, from) + insert + text.substring(end)
+        val set = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, updated)
+        }
+        if (!n.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, set)) return false
+        val cursor = from + insert.length
+        n.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, cursor)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursor)
+        })
+        return true
+    }
+
+    /** Presses the field's Send/Done/Enter action, if it has one. */
+    fun pressEnter(): Boolean {
+        val n = target ?: return false
+        if (!n.refresh() || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+        return n.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+    }
+
+    /** The field's text and selection, with the cursor at the end if unknown. */
+    private fun fieldState(): Triple<String, Int, Int>? {
+        val n = target ?: return null
+        if (!n.refresh()) return null
+        val text = if (n.isShowingHintText) "" else n.text?.toString().orEmpty()
+        var start = n.textSelectionStart
+        var end = n.textSelectionEnd
+        if (start !in 0..text.length) start = text.length
+        if (end !in 0..text.length) end = start
+        return Triple(text, minOf(start, end), maxOf(start, end))
+    }
 
     override fun onInterrupt() {}
 
