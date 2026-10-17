@@ -1,11 +1,14 @@
 package io.github.kabellosan.penkeyboard
 
+import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -44,20 +47,63 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     private val commitRunnable = Runnable { recognizeAndCommit() }
 
-    /** Side button held + taps: two send, three switch DA/EN, a long press opens the launcher. */
-    private lateinit var eraserTaps: EraserTaps
+    /** Side button held + taps, a press, or a drawn shape: actions set in Pen shortcuts. */
+    private lateinit var buttonGestures: ButtonGestures
+    private lateinit var shortcuts: Shortcuts
+
+    /**
+     * Page Up/Down held + tip strokes: shortcuts of that page button's layer.
+     * Boox sends the page buttons as volume keys when an app's buttons are set
+     * to Volume. The ink shows while drawing and is wiped once it is read.
+     */
+    private lateinit var pageGestures: ButtonGestures
+
+    /**
+     * Page-button presses arrive even before the keyboard has ever been shown,
+     * when its views don't exist yet.
+     */
+    private val hasView get() = ::ink.isInitialized
+    private var heldLayer: Layer? = null
+    private var strokeLayer: Layer? = null
+    private var pageLayer = Layer.PAGE_UP
+    private var strokeStartedAt = 0L
+
+    /** Page buttons pressed on their own: counted, then run as a [ButtonPress]. */
+    private var keyDownAt = 0L
+    private var strokeDuringHold = false
+    private var pressLayer: Layer? = null
+    private var pressCount = 0
+    private val pressGapMs = 350L
+    private val finishPress = Runnable {
+        val up = pressLayer == Layer.PAGE_UP
+        val press = when {
+            pressCount >= 2 -> if (up) ButtonPress.UP_DOUBLE else ButtonPress.DOWN_DOUBLE
+            else -> if (up) ButtonPress.UP_PRESS else ButtonPress.DOWN_PRESS
+        }
+        pressLayer = null
+        pressCount = 0
+        // A key press must never take the app down (the helper service shares its process).
+        try {
+            perform(shortcuts.action(press))
+        } catch (e: Exception) {
+            Log.w(PenApp.TAG, "Page button action failed: ${e.message}")
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         recognizer = Recognizer()
         recognizer.downloadAll()
-        eraserTaps = EraserTaps(10 * resources.displayMetrics.density, { gesture ->
-            when (gesture) {
-                EraserTaps.Gesture.DOUBLE_TAP -> flushThen { enter() }
-                EraserTaps.Gesture.TRIPLE_TAP -> toggleLanguage()
-                EraserTaps.Gesture.LONG_PRESS -> openLauncher()
-            }
-        }, ::erase)
+        shortcuts = Shortcuts(this)
+        activeLang = Shortcuts.language(this)
+        buttonGestures = ButtonGestures(10 * resources.displayMetrics.density,
+            { trigger -> perform(shortcuts.action(trigger)) },
+            { strokes -> onShape(strokes, Layer.PEN) },
+            ::erase)
+        pageGestures = ButtonGestures(10 * resources.displayMetrics.density,
+            { trigger -> endPageGesture(); perform(shortcuts.action(trigger, pageLayer)) },
+            { strokes -> endPageGesture(); onShape(strokes, pageLayer) },
+            { endPageGesture() })
     }
 
     override fun onDestroy() {
@@ -85,7 +131,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         root.addView(ink, LinearLayout.LayoutParams(MATCH_PARENT, (200 * dp).toInt()))
 
         val keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        langKey = key("DA") { toggleLanguage() }
+        langKey = key(activeLang.uppercase()) { toggleLanguage() }
         keys.addView(langKey, weight(1f))
         keys.addView(key("⌨") { switchKeyboard() }, weight(1f))
         keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(3f))
@@ -101,6 +147,8 @@ class PenIME : InputMethodService(), InkView.Listener {
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         lastCommitted = null
+        activeLang = Shortcuts.language(this)
+        langKey.text = activeLang.uppercase()
         showCandidates(emptyMap())
         enterKey.text = if (sendsAction(info)) "Send" else "⏎"
         ink.post { ink.startPen() }
@@ -108,6 +156,7 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         main.removeCallbacks(commitRunnable)
+        heldLayer = null
         ink.stopPen()
         ink.clear()
         super.onFinishInputView(finishingInput)
@@ -116,31 +165,132 @@ class PenIME : InputMethodService(), InkView.Listener {
     // ── Pen events ──────────────────────────────────────────────────
 
     override fun onStrokeStart() {
-        eraserTaps.flush()
+        buttonGestures.flush()
         main.removeCallbacks(commitRunnable)
+        strokeLayer = heldLayer
+        if (strokeLayer != null) {
+            strokeStartedAt = SystemClock.uptimeMillis()
+            strokeDuringHold = true
+        } else {
+            pageGestures.flush()
+        }
     }
 
     override fun onStrokeEnd() {
         main.removeCallbacks(commitRunnable)
-        main.postDelayed(commitRunnable, commitDelayMs)
+        val layer = strokeLayer
+        if (layer == null) {
+            main.postDelayed(commitRunnable, commitDelayMs)
+            return
+        }
+        // A page-button stroke is a shortcut, not writing: take it out of the ink.
+        strokeLayer = null
+        val stroke = ink.strokes.removeLastOrNull() ?: return
+        if (layer != pageLayer) pageGestures.flush()
+        pageLayer = layer
+        pageGestures.feed(stroke, SystemClock.uptimeMillis() - strokeStartedAt)
     }
 
-    override fun onErase(path: Stroke, durationMs: Long) {
-        eraserTaps.feed(path, durationMs)
+    /** Wipes the page-button strokes off the screen once they are read. */
+    private fun endPageGesture() {
+        if (!ink.drawing) ink.repaint()
     }
 
     /**
-     * Eraser: over waiting ink it rubs out the strokes it touches. Over an empty
-     * strip it deletes the word before the cursor, one word per sweep.
+     * Page buttons. Every press is swallowed so the volume doesn't change. With the
+     * keyboard open, holding one makes pen strokes its shortcuts; a quick press with
+     * no strokes (or any press while the keyboard is hidden) counts toward a
+     * press or double press.
      */
-    private fun erase(path: Stroke) {
-        main.removeCallbacks(commitRunnable)
-        if (ink.strokes.isNotEmpty()) {
-            ink.eraseAlong(path)
-            if (ink.strokes.isNotEmpty()) main.postDelayed(commitRunnable, commitDelayMs)
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val layer = pageButton(keyCode) ?: return super.onKeyDown(keyCode, event)
+        if (event.repeatCount > 0) return true
+        keyDownAt = SystemClock.uptimeMillis()
+        strokeDuringHold = false
+        if (isInputViewShown) {
+            flushThen {}
+            heldLayer = layer
+        }
+        return true
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        val layer = pageButton(keyCode) ?: return super.onKeyUp(keyCode, event)
+        if (heldLayer == layer) heldLayer = null
+        val quick = SystemClock.uptimeMillis() - keyDownAt < 500
+        if (!strokeDuringHold && quick) countPress(layer)
+        return true
+    }
+
+    private fun countPress(layer: Layer) {
+        main.removeCallbacks(finishPress)
+        if (pressLayer != null && pressLayer != layer) finishPress.run()
+        pressLayer = layer
+        pressCount++
+        main.postDelayed(finishPress, pressGapMs)
+    }
+
+    /** The Go 7's page buttons, as Boox sends them (volume keys) or as page keys. */
+    private fun pageButton(keyCode: Int): Layer? = when (keyCode) {
+        KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_PAGE_UP -> Layer.PAGE_UP
+        KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> Layer.PAGE_DOWN
+        else -> null
+    }
+
+    /**
+     * Button held down. Over waiting ink a sweep rubs out what it touches; taps,
+     * presses, and anything drawn on an empty strip are shortcuts.
+     */
+    override fun onErase(path: Stroke, durationMs: Long) {
+        if (ink.strokes.isNotEmpty() && !buttonGestures.pending && !buttonGestures.isStill(path)) {
+            erase(path)
             return
         }
-        deleteLastWord()
+        main.removeCallbacks(commitRunnable)
+        buttonGestures.feed(path, durationMs)
+    }
+
+    /** Rubs out the waiting strokes that [path] touches. */
+    private fun erase(path: Stroke) {
+        main.removeCallbacks(commitRunnable)
+        if (ink.strokes.isEmpty()) return
+        ink.eraseAlong(path)
+        if (ink.strokes.isNotEmpty()) main.postDelayed(commitRunnable, commitDelayMs)
+    }
+
+    /** A shape drawn with a button held: run the shortcut it matches, if any. */
+    private fun onShape(strokes: List<Stroke>, layer: Layer) {
+        val match = shortcuts.match(strokes, packageManager, layer)
+        if (match == null) {
+            showMessage("No shortcut for that shape")
+            perform(Action.NONE)
+            return
+        }
+        perform(match.action)
+    }
+
+    /** Runs a shortcut's action. */
+    private fun perform(action: Action) {
+        when (action) {
+            Action.NONE -> {}
+            Action.SEND -> flushThen { enter() }
+            Action.LANG -> toggleLanguage()
+            Action.QUICK_PAD -> openLauncher()
+            Action.BACK -> flushThen { goBack() }
+            Action.PEN_PAD -> flushThen {
+                startActivity(Intent(this, PenPadActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
+            Action.DELETE_WORD -> {
+                main.removeCallbacks(commitRunnable)
+                if (hasView && ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()
+            }
+            else -> action.app?.let { app -> flushThen { startActivity(Action.launchIntent(app)) } }
+        }
+        // Button taps pause the commit timer; ink still waiting gets read as usual.
+        if (hasView && ink.strokes.isNotEmpty()) {
+            main.removeCallbacks(commitRunnable)
+            main.postDelayed(commitRunnable, commitDelayMs)
+        }
     }
 
     /** Deletes the last word before the cursor, with the spaces after it. */
@@ -178,7 +328,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     /** If ink is waiting, turn it into text first, then run [action]. */
     private fun flushThen(action: () -> Unit) {
         main.removeCallbacks(commitRunnable)
-        if (ink.strokes.isEmpty()) action() else recognizeAndCommit(action)
+        if (!hasView || ink.strokes.isEmpty()) action() else recognizeAndCommit(action)
     }
 
     // ── Text output ─────────────────────────────────────────────────
@@ -239,12 +389,27 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     private fun toggleLanguage() {
         activeLang = if (activeLang == "da") "en" else "da"
-        langKey.text = activeLang.uppercase()
+        Shortcuts.setLanguage(this, activeLang)
+        if (hasView) langKey.text = activeLang.uppercase()
     }
 
     private fun openLauncher() {
         flushThen {
             startActivity(Intent(this, LauncherActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    /**
+     * Android's Back. The helper service presses the real Back button; the keyboard
+     * hides first, or that press would only close the keyboard. Without the helper,
+     * a Back key goes to the app, which most apps treat the same.
+     */
+    private fun goBack() {
+        if (PenButtonProbe.instance != null) {
+            requestHideSelf(0)
+            main.postDelayed({ PenButtonProbe.instance?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK) }, 150)
+        } else {
+            sendDownUpKeyEvents(KeyEvent.KEYCODE_BACK)
         }
     }
 
@@ -255,6 +420,20 @@ class PenIME : InputMethodService(), InkView.Listener {
     }
 
     // ── UI helpers ──────────────────────────────────────────────────
+
+    /** Shows a short note in the candidate row. */
+    private fun showMessage(text: String) {
+        if (!hasView) return
+        candidateRow.removeAllViews()
+        candidateRow.addView(TextView(this).apply {
+            this.text = text
+            textSize = 18f
+            gravity = Gravity.CENTER_VERTICAL
+            setTextColor(Color.DKGRAY)
+            val pad = (12 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+    }
 
     /** Shows the active language's guesses first, then the other language's. */
     private fun showCandidates(results: Map<String, List<String>>) {

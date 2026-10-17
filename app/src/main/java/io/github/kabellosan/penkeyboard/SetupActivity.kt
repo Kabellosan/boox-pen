@@ -2,6 +2,7 @@ package io.github.kabellosan.penkeyboard
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
@@ -11,6 +12,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 
 /** Launcher screen: turn the keyboard on, pick it, fetch the models, try it out. */
@@ -19,6 +21,7 @@ class SetupActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var updateStatus: TextView
     private lateinit var updateButton: Button
+    private lateinit var probeLog: TextView
     private lateinit var testBuilds: LinearLayout
     private var release: Updater.Release? = null
     private var updating = false
@@ -49,6 +52,34 @@ class SetupActivity : Activity() {
             (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
         })
         root.addView(button("3. Download Danish + English models") { download() })
+        root.addView(button("Pen shortcuts: taps, gestures, apps") {
+            startActivity(Intent(this, ShortcutsActivity::class.java))
+        })
+        root.addView(TextView(this).apply {
+            text = "Page buttons as shortcut keys: in Boox settings set Customize Buttons → Volume for " +
+                "the apps you write in, and the smart button's long press → None. Then hold Up or Down " +
+                "and tap or draw on the keyboard (set what they do in Pen shortcuts)."
+            textSize = 16f
+        })
+        root.addView(TextView(this).apply {
+            text = "\nSwitch on \"Pen Keyboard helper\" for the Go back shortcut. Button in every app? " +
+                "With the helper on, click the pen button (in the air and touching) in any other app " +
+                "and come back here."
+            textSize = 18f
+        })
+        root.addView(TextView(this).apply {
+            text = "If Android says \"Restricted setting\": tap App info below, then ⋮ (top right) → " +
+                "Allow restricted settings, then try again."
+            textSize = 16f
+        })
+        root.addView(button("App info (to allow restricted settings)") {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+        })
+        root.addView(button("Open Accessibility settings") {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        })
+        probeLog = TextView(this).apply { textSize = 16f }
+        root.addView(probeLog)
         status = TextView(this).apply { textSize = 18f }
         root.addView(status)
         root.addView(TextView(this).apply {
@@ -58,15 +89,20 @@ class SetupActivity : Activity() {
         root.addView(EditText(this).apply { hint = "Write with the pen…" })
         root.addView(TextView(this).apply {
             text = "\nPen test: touch the box with the tip, then hold the button and tap it " +
-                "twice, three times, or press and hold."
+                "twice, three times, press and hold, or draw a shape (like a T)."
             textSize = 18f
         })
         root.addView(penTestBox(), LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, (160 * resources.displayMetrics.density).toInt()))
 
-        setContentView(root)
+        setContentView(ScrollView(this).apply { addView(root) })
         refreshStatus()
         checkForUpdate()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        probeLog.text = PenButtonProbe.log(this).ifEmpty { "Probe: no keys seen yet." }
     }
 
     override fun onDestroy() {
@@ -171,9 +207,11 @@ class SetupActivity : Activity() {
     private fun penTestBox(): View {
         var lastGesture = "none yet"
         var refresh: () -> Unit = {}
-        val taps = EraserTaps(10 * resources.displayMetrics.density,
-            { lastGesture = it.name.lowercase().replace('_', ' '); refresh() },
-            { lastGesture = "erase"; refresh() })
+        val shortcuts = Shortcuts(this)
+        val gestures = ButtonGestures(10 * resources.displayMetrics.density,
+            { lastGesture = "${it.label} → ${shortcuts.action(it).label(packageManager)}"; refresh() },
+            { strokes -> lastGesture = describeShape(shortcuts, strokes); refresh() },
+            { lastGesture = "one tap (erases a dot)"; refresh() })
         var path: Stroke? = null
         var downAt = 0L
         val box = TextView(this).apply {
@@ -194,14 +232,19 @@ class SetupActivity : Activity() {
                 if (e.buttonState and MotionEvent.BUTTON_STYLUS_SECONDARY != 0) add("side button 2")
                 if (e.buttonState and MotionEvent.BUTTON_SECONDARY != 0) add("secondary")
             }.ifEmpty { listOf("no buttons") }
+            // Keep the page from scrolling while drawing in the box.
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) v.parent.requestDisallowInterceptTouchEvent(true)
             if (e.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER) when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> { path = Stroke().apply { add(e.x, e.y, e.eventTime) }; downAt = e.eventTime }
-                MotionEvent.ACTION_MOVE -> path?.add(e.x, e.y, e.eventTime)
-                MotionEvent.ACTION_UP -> path?.let { taps.feed(it, e.eventTime - downAt); path = null }
+                MotionEvent.ACTION_MOVE -> path?.let { p ->
+                    for (h in 0 until e.historySize) p.add(e.getHistoricalX(h), e.getHistoricalY(h), e.getHistoricalEventTime(h))
+                    p.add(e.x, e.y, e.eventTime)
+                }
+                MotionEvent.ACTION_UP -> path?.let { gestures.feed(it, e.eventTime - downAt); path = null }
             }
             val line = "${MotionEvent.actionToString(e.actionMasked)}\n$tool · ${buttons.joinToString()}" +
                 "\nraw buttonState=${e.buttonState}"
-            refresh = { (v as TextView).text = "$line\neraser gesture: $lastGesture" }
+            refresh = { (v as TextView).text = "$line\nbutton gesture: $lastGesture" }
             refresh()
             true
         }
@@ -209,6 +252,19 @@ class SetupActivity : Activity() {
         box.setOnGenericMotionListener { v, e -> report(v, e) }
         box.setOnHoverListener { v, e -> report(v, e) }
         return box
+    }
+
+    /** What a shape drawn with the button held was recorded as, and what it matched. */
+    private fun describeShape(shortcuts: Shortcuts, strokes: List<Stroke>): String {
+        val points = strokes.sumOf { it.size }
+        val drawn = "drew ${strokes.size} stroke${if (strokes.size == 1) "" else "s"}, $points points"
+        val match = shortcuts.match(strokes, packageManager)
+        val closest = shortcuts.rank(strokes).firstOrNull()
+        return when {
+            match != null -> "$drawn → ${match.label}" + (match.score?.let { " (%.2f)".format(it) } ?: "")
+            closest != null -> "$drawn → no match (closest %.2f, needs under %.2f)".format(closest.second, PointCloud.MATCH_MAX)
+            else -> "$drawn → no match"
+        }
     }
 
     private fun button(label: String, onClick: () -> Unit) = Button(this).apply {

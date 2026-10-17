@@ -38,6 +38,9 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         fun onErase(path: Stroke, durationMs: Long)
     }
 
+    /** See-through: no white page or baseline, so the app underneath shows (Pen Pad). */
+    var transparent = false
+
     /** Strokes written since the last clear, in this view's pixel coordinates. */
     val strokes = ArrayList<Stroke>()
 
@@ -155,6 +158,12 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         }
     }
 
+    /** True while a stroke is being drawn. */
+    val drawing get() = current != null
+
+    /** Wipes ink that is no longer in [strokes] off the screen. */
+    fun repaint() = redraw()
+
     /** Forgets the strokes and wipes the ink off the screen. */
     fun clear() {
         strokes.clear()
@@ -251,9 +260,11 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     }
 
     override fun onDraw(canvas: Canvas) {
-        canvas.drawColor(Color.WHITE)
-        val y = height * 0.7f
-        canvas.drawLine(0f, y, width.toFloat(), y, baseline)
+        if (!transparent) {
+            canvas.drawColor(Color.WHITE)
+            val y = height * 0.7f
+            canvas.drawLine(0f, y, width.toFloat(), y, baseline)
+        }
         // With the Onyx overlay this only matters after redraw(), which wipes the
         // overlay and leaves this view's own drawing on screen.
         for (s in strokes) {
