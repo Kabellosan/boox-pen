@@ -301,6 +301,19 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         e.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER ||
             e.buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY != 0
 
+    /**
+     * A screen opened from the keyboard (Pad Launch, Pen Pad) comes up before the
+     * keyboard has finished hiding, and the keyboard's stopPen() then switches raw
+     * drawing off for the whole app. Opening it again once this window has the
+     * focus wins that race.
+     */
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (hasWindowFocus && touchHelper != null) {
+            main.postDelayed({ if (hasWindowFocus()) startPen() }, 300)
+        }
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (touchHelper != null) post { startPen() }
