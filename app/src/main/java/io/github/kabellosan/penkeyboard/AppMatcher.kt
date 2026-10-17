@@ -28,6 +28,9 @@ class AppMatcher(
 ) {
     constructor(context: Context) : this(context.packageManager, context.packageName, context)
 
+    /** How many apps each source returned, and what direct lookups found. Temporary diagnostics. */
+    val report = StringBuilder()
+
     val apps: List<AppEntry> = loadApps()
 
     private fun loadApps(): List<AppEntry> {
@@ -48,6 +51,7 @@ class AppMatcher(
         } catch (e: Throwable) {
             Log.w(PenApp.TAG, "LauncherApps failed: ${e.message}")
         }
+        report.append("launcher ${found.size}")
 
         try {
             val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
@@ -57,6 +61,7 @@ class AppMatcher(
         } catch (e: Throwable) {
             Log.w(PenApp.TAG, "Launcher query failed: ${e.message}")
         }
+        report.append(", +intent ${found.size}")
 
         try {
             for (info in pm.getInstalledApplications(0)) {
@@ -67,6 +72,7 @@ class AppMatcher(
         } catch (e: Throwable) {
             Log.w(PenApp.TAG, "Installed apps query failed: ${e.message}")
         }
+        report.append(", +installed ${found.size}")
 
         // Frozen apps (disabled or hidden) are left out of every query above.
         try {
@@ -81,6 +87,23 @@ class AppMatcher(
             }
         } catch (e: Throwable) {
             Log.w(PenApp.TAG, "Frozen apps query failed: ${e.message}")
+        }
+        report.append(", +frozen ${found.size}")
+        try {
+            report.append(", packages ${pm.getInstalledPackages(0).size}")
+        } catch (e: Throwable) {}
+
+        // Ask for some known apps by name: lists can be filtered while direct lookups aren't.
+        report.append("\n")
+        for (pkg in PROBES) {
+            val state = try {
+                val info = pm.getApplicationInfo(pkg, 0)
+                val component = pm.getLaunchIntentForPackage(pkg)?.component
+                if (component != null) add(info.loadLabel(pm), component)
+                if (component != null) "ok" else "no launcher"
+            } catch (e: PackageManager.NameNotFoundException) { "-" }
+            catch (e: Throwable) { e.javaClass.simpleName }
+            if (state != "-") report.append("$pkg $state\n")
         }
 
         Log.i(PenApp.TAG, "AppMatcher: ${found.size} apps")
@@ -108,6 +131,12 @@ class AppMatcher(
 
     companion object {
         const val PREFIX = 100
+
+        private val PROBES = listOf(
+            "app.mihon", "eu.kanade.tachiyomi", "org.koreader.launcher", "org.koreader.launcher.fdroid",
+            "md.obsidian", "com.realtimeboard", "com.foobnix.pdf.reader", "com.foobnix.pro.pdf.reader",
+            "com.chess", "org.lichess.mobileapp", "com.google.android.apps.nbu.files", "com.anthropic.claude",
+        )
 
         fun norm(s: String): String =
             Normalizer.normalize(s.lowercase(), Normalizer.Form.NFD)

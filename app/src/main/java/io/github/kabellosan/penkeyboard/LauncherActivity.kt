@@ -177,7 +177,9 @@ class LauncherActivity : Activity(), InkView.Listener {
         ink.stopPen() // or the pen would draw over the dialog
         android.app.AlertDialog.Builder(this)
             .setTitle("${matcher.apps.size} apps")
-            .setMessage(lines)
+            .setMessage("app list permission " +
+                (if (checkSelfPermission(GET_INSTALLED_APPS) == PackageManager.PERMISSION_GRANTED) "yes" else "no") +
+                ", " + matcher.report + "\n" + lines)
             .setPositiveButton("OK", null)
             .setOnDismissListener { ink.startPen() }
             .show()
