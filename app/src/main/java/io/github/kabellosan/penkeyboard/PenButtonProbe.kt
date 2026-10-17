@@ -3,9 +3,16 @@ package io.github.kabellosan.penkeyboard
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
+import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import java.text.SimpleDateFormat
@@ -16,6 +23,7 @@ import java.util.Locale
  * Pen Keyboard helper, an accessibility service (off until switched on):
  * - lets Pen Pad write into the text field you were using in another app;
  * - lets the Go back shortcut press Android's real Back button;
+ * - turns eraser taps on any screen (outside the keyboard's strip) into shortcuts;
  * - probes whether the pen's side button sends anything the whole system can see.
  *
  * Text fields: it remembers the last editable field that got focus in another
@@ -26,23 +34,165 @@ import java.util.Locale
  * from every app. If the Go 7's button sends one, a button click anywhere could
  * open Pad Launch. This service only records which keys arrive (never what
  * is typed on screen) and passes them all on untouched.
+ *
+ * Eraser taps anywhere: Android 13 gives no app other apps' pen strokes, and a
+ * layer that took them would break normal touch. What it does allow is a window
+ * that asks to hear about touches outside itself: it is told only that a touch
+ * started, with the position hidden, and the touch still goes to the app below.
+ * That plus the tool type (the button makes the pen an eraser) is enough to count
+ * eraser taps on any screen.
  */
 class PenButtonProbe : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        watchTouches()
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
+        stopWatching()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
         instance = null
+        stopWatching()
         super.onDestroy()
     }
+
+    // ── Eraser taps on any screen ───────────────────────────────────
+
+    private val main = Handler(Looper.getMainLooper())
+    private var watcher: View? = null
+    private val seenTools = HashSet<Int>()
+    private var taps = 0
+    private var lastTapAt = 0L
+
+    private val finishTaps = Runnable {
+        val tap = when {
+            taps >= 3 -> AnywhereTap.TRIPLE
+            taps == 2 -> AnywhereTap.DOUBLE
+            else -> null
+        }
+        taps = 0
+        if (tap != null) {
+            val action = Shortcuts(this).action(tap)
+            // A shortcut must never take the app down (the keyboard shares its process).
+            try {
+                perform(action)
+                record(this, "Anywhere: ${tap.label} → ${action.label(packageManager)}")
+            } catch (e: Exception) {
+                record(this, "Anywhere: ${tap.label} → ${action.label(packageManager)} failed: ${e.message}")
+            }
+        }
+    }
+
+    /** A see-through 1-pixel window in the corner that hears about every touch outside it. */
+    private fun watchTouches() {
+        if (watcher != null) return
+        val view = View(this)
+        view.setOnTouchListener { _, e ->
+            if (e.actionMasked == MotionEvent.ACTION_OUTSIDE) onTouchAnywhere(e)
+            false
+        }
+        val params = WindowManager.LayoutParams(1, 1,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+            PixelFormat.TRANSPARENT).apply { gravity = Gravity.TOP or Gravity.START }
+        try {
+            (getSystemService(WINDOW_SERVICE) as WindowManager).addView(view, params)
+            watcher = view
+        } catch (e: Exception) {
+            record(this, "Anywhere: can't watch the pen (${e.message})")
+        }
+    }
+
+    private fun stopWatching() {
+        main.removeCallbacks(finishTaps)
+        val view = watcher ?: return
+        watcher = null
+        runCatching { (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(view) }
+    }
+
+    private fun onTouchAnywhere(e: MotionEvent) {
+        val tool = e.getToolType(0)
+        // Android hides where a touch landed only when it landed in another app. So a
+        // position means the keyboard's own strip, whose taps are its shortcuts.
+        val onKeyboard = PenIME.shown && (e.x != 0f || e.y != 0f)
+        if (tool != MotionEvent.TOOL_TYPE_ERASER) {
+            // Once per kind and start, so the log shows the watcher works without filling up.
+            if (seenTools.add(tool)) record(this, "Anywhere: ${toolName(tool)} seen (watching works)")
+            if (tool == MotionEvent.TOOL_TYPE_STYLUS && !onKeyboard) {
+                tipDowns.addLast(e.eventTime)
+                while (tipDowns.size > 8) tipDowns.removeFirst()
+            }
+            return
+        }
+        val skip = when {
+            onKeyboard -> "the keyboard"
+            else -> rootInActiveWindow?.packageName?.toString()?.takeIf { it == packageName || it in PEN_APPS }
+        }
+        if (skip != null) {
+            record(this, "Anywhere: eraser tap, left to $skip")
+            return
+        }
+        if (e.eventTime - lastTapAt > TAP_GAP_MS) taps = 0
+        lastTapAt = e.eventTime
+        taps++
+        record(this, "Anywhere: eraser tap $taps")
+        main.removeCallbacks(finishTaps)
+        main.postDelayed(finishTaps, TAP_GAP_MS)
+    }
+
+    /** When the pen tip last touched down outside the keyboard, oldest first. */
+    private val tipDowns = ArrayDeque<Long>()
+
+    /**
+     * How many tip touches started in the [windowMs] before [time] (both uptime ms),
+     * forgetting them so they count once. For page button + tip taps: Boox sends a
+     * page press only when the button is let go, so the taps come before the key.
+     */
+    fun takeTipTaps(time: Long, windowMs: Long): Int {
+        val n = tipDowns.count { it in (time - windowMs)..time }
+        if (n > 0) tipDowns.clear()
+        return n
+    }
+
+    private fun toolName(tool: Int) = when (tool) {
+        MotionEvent.TOOL_TYPE_STYLUS -> "pen tip"
+        MotionEvent.TOOL_TYPE_FINGER -> "finger"
+        else -> "tool $tool"
+    }
+
+    /** Runs a shortcut from here, where there is no keyboard to type with. */
+    private fun perform(action: Action) {
+        when (action) {
+            Action.NONE -> {}
+            // With the keyboard open, Back would only close it: close it first, then go back.
+            Action.BACK -> if (PenIME.shown) {
+                PenIME.instance?.requestHideSelf(0)
+                main.postDelayed({ performGlobalAction(GLOBAL_ACTION_BACK) }, 150)
+            } else {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+            }
+            Action.QUICK_PAD -> launch(Intent(this, LauncherActivity::class.java))
+            Action.PEN_PAD -> launch(Intent(this, PenPadActivity::class.java))
+            Action.SEND -> pressEnter()
+            Action.LANG -> Shortcuts.setLanguage(this, if (Shortcuts.language(this) == "da") "en" else "da")
+            Action.DELETE_WORD -> {
+                val before = textBeforeCursor(64)
+                val word = Regex("\\S+\\s*$").find(before)?.value ?: before.takeLastWhile { it.isWhitespace() }
+                if (word.isNotEmpty()) edit(word.length, "")
+            }
+            else -> action.app?.let { startActivity(Action.launchIntent(it)) }
+        }
+    }
+
+    private fun launch(intent: Intent) = startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         // A held key repeats its down event; one line per press is enough.
@@ -125,6 +275,15 @@ class PenButtonProbe : AccessibilityService() {
         /** The running service, while it is switched on. */
         var instance: PenButtonProbe? = null
             private set
+
+        /**
+         * Most from one eraser touch-down to the next for them to count as one series
+         * of taps. Short, so quick rubbing-out strokes in other apps don't add up.
+         */
+        private const val TAP_GAP_MS = 500L
+
+        /** Apps where the eraser is for erasing (Boox Notes): their taps are left alone. */
+        private val PEN_APPS = setOf("com.onyx.android.note")
 
         private const val PREFS = "pen_button_probe"
         private const val LOG = "log"

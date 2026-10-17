@@ -12,7 +12,8 @@ import android.os.Looper
  * - only quick taps: two or three of them are a [Trigger];
  * - one still press: [Trigger.LONG_PRESS], straight away;
  * - anything drawn: the whole drawing (a T is two strokes) goes to [onShape];
- * - a single tap alone goes to [onTap], so it can still rub out a dot.
+ * - a single tap alone goes to [onTap], so it can still rub out a dot;
+ * - a tap, then a press that slides: [takeTap] lets the caller claim that tap.
  */
 class ButtonGestures(
     /** How far the pen may wander, in pixels, and still count as a tap. */
@@ -60,6 +61,14 @@ class ButtonGestures(
         contacts.add(path)
         if (!still || durationMs > tapMaxMs) drew = true
         main.postDelayed(finish, if (drew) shapeGapMs else tapGapMs)
+    }
+
+    /** If exactly one quick tap is waiting, forgets it and returns true (tap, then slide). */
+    fun takeTap(): Boolean {
+        if (contacts.size != 1 || drew) return false
+        main.removeCallbacks(finish)
+        contacts = ArrayList()
+        return true
     }
 
     /** Settles any contacts still waiting, before something else happens. */
