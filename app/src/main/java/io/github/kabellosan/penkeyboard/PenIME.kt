@@ -86,7 +86,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         val action = shortcuts.action(press)
         try {
             perform(action)
-            PenButtonProbe.record(this, "Keyboard: ${press.label} → ${action.label(packageManager)}")
+            val helper = if (PenButtonProbe.instance != null) "helper on" else "helper off"
+            PenButtonProbe.record(this, "Keyboard: ${press.label} → ${action.label(packageManager)} ($helper)")
         } catch (e: Exception) {
             Log.w(PenApp.TAG, "Page button action failed: ${e.message}")
             PenButtonProbe.record(this, "Keyboard: ${press.label} → ${action.label(packageManager)} failed: ${e.message}")
@@ -208,6 +209,8 @@ class PenIME : InputMethodService(), InkView.Listener {
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val layer = pageButton(keyCode) ?: return super.onKeyDown(keyCode, event)
         if (event.repeatCount > 0) return true
+        PenButtonProbe.record(this, "Keyboard got ${KeyEvent.keyCodeToString(keyCode)}" +
+            if (isInputViewShown) " (keyboard open)" else " (keyboard hidden)")
         keyDownAt = SystemClock.uptimeMillis()
         strokeDuringHold = false
         if (isInputViewShown) {
