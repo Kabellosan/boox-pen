@@ -227,7 +227,10 @@ class PenIME : InputMethodService(), InkView.Listener {
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         val layer = pageButton(keyCode) ?: return super.onKeyUp(keyCode, event)
         if (heldLayer == layer) heldLayer = null
-        val quick = SystemClock.uptimeMillis() - keyDownAt < 500
+        val held = SystemClock.uptimeMillis() - keyDownAt
+        val quick = held < 500
+        PenButtonProbe.record(this, "  up after $held ms" + (if (strokeDuringHold) ", drew" else "") +
+            (if (quick && !strokeDuringHold) ", press ${pressCount + 1}" else ", not counted"))
         if (!strokeDuringHold && quick) countPress(layer)
         else if (pressLayer != null) finishPress.run()
         return true

@@ -132,8 +132,8 @@ class PenButtonProbe : AccessibilityService() {
         /** Adds a line to the key log shown in the Pen Keyboard app. */
         fun record(context: Context, line: String) {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            val time = SimpleDateFormat("HH:mm:ss", Locale.ROOT).format(Date())
-            val lines = (listOf("$time  $line") + (prefs.getString(LOG, "") ?: "").lines().filter { it.isNotBlank() }).take(12)
+            val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT).format(Date())
+            val lines = (listOf("$time  $line") + (prefs.getString(LOG, "") ?: "").lines().filter { it.isNotBlank() }).take(20)
             prefs.edit().putString(LOG, lines.joinToString("\n")).apply()
         }
 
