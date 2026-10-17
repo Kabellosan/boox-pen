@@ -290,7 +290,40 @@ class PenIME : InputMethodService(), InkView.Listener {
      * Button held down. Over waiting ink a sweep rubs out what it touches; taps,
      * presses, and anything drawn on an empty strip are shortcuts.
      */
+    /**
+     * Button held: tap, then press again and slide sideways to move the cursor,
+     * one character per [slideStepPx], to fix a typo without leaving the strip.
+     */
+    private var sliding = false
+    private var slideX = 0f
+    private val slideStepPx get() = 12 * resources.displayMetrics.density
+
+    override fun onEraseStart() {
+        if (!buttonGestures.takeTap()) return
+        sliding = true
+        slideX = Float.NaN
+        main.removeCallbacks(commitRunnable)
+        if (ink.strokes.isNotEmpty()) recognizeAndCommit()
+    }
+
+    override fun onEraseMove(path: Stroke) {
+        if (!sliding || path.size == 0) return
+        if (slideX.isNaN()) slideX = path.xs[0]
+        val steps = ((path.xs[path.size - 1] - slideX) / slideStepPx).toInt()
+        if (steps == 0) return
+        slideX += steps * slideStepPx
+        lastCommitted = null
+        val key = if (steps > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT
+        repeat(kotlin.math.abs(steps)) { sendDownUpKeyEvents(key) }
+    }
+
     override fun onErase(path: Stroke, durationMs: Long) {
+        if (sliding) {
+            // Firmware that sends no live moves gets the whole slide at the end.
+            onEraseMove(path)
+            sliding = false
+            return
+        }
         if (ink.strokes.isNotEmpty() && !buttonGestures.pending && !buttonGestures.isStill(path)) {
             erase(path)
             return

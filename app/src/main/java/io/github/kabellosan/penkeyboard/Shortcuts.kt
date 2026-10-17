@@ -54,7 +54,7 @@ data class Action(val code: String) {
 
 /** The fixed things the pen's button can do, each with an assignable action. */
 enum class Trigger(val key: String, val label: String, val default: Action) {
-    DOUBLE_TAP("double_tap", "Tap twice", Action.SEND),
+    DOUBLE_TAP("double_tap", "Tap twice", Action.NONE),
     TRIPLE_TAP("triple_tap", "Tap three times", Action.LANG),
     LONG_PRESS("long_press", "Press and hold", Action.QUICK_PAD),
     SWIPE("swipe", "Swipe sideways", Action.DELETE_WORD),
