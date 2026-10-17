@@ -63,6 +63,15 @@ class ShortcutsActivity : Activity() {
             "the keyboard hidden; Pen Pad and apps open only with Pen Keyboard helper on). In Boox settings set " +
             "Customize Buttons → Volume for the apps you write in, and the smart button's long press → None.", 16f))
 
+        list.addView(text("\nHold a page button and tap anywhere with the tip…", 18f))
+        for (t in PageTap.values()) {
+            list.addView(row("${t.label}:  ${shortcuts.action(t).label(packageManager)}") {
+                pickAction(this, shortcuts.action(t)) { a -> shortcuts.setAction(t, a); refresh() }
+            })
+        }
+        list.addView(text("Works on any screen outside the keyboard's strip, with Pen Keyboard helper on. " +
+            "It runs when you let go of the button. The app underneath feels the taps too.", 16f))
+
         list.addView(text("\nHold the pen's button and tap anywhere…", 18f))
         for (t in AnywhereTap.values()) {
             list.addView(row("${t.label}:  ${shortcuts.action(t).label(packageManager)}") {

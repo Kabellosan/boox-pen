@@ -80,6 +80,17 @@ enum class ButtonPress(val key: String, val label: String, val default: Action) 
 }
 
 /**
+ * Holding a page button and tapping the screen with the pen tip, anywhere outside
+ * the keyboard's strip. Seen when the button is let go (that's when Boox sends it).
+ */
+enum class PageTap(val key: String, val label: String, val default: Action) {
+    UP_DOUBLE("up_tap2", "Hold page Up, tap twice", Action.QUICK_PAD),
+    UP_TRIPLE("up_tap3", "Hold page Up, tap three times", Action.NONE),
+    DOWN_DOUBLE("down_tap2", "Hold page Down, tap twice", Action.PEN_PAD),
+    DOWN_TRIPLE("down_tap3", "Hold page Down, tap three times", Action.NONE),
+}
+
+/**
  * Eraser taps (the pen's button held) on any screen, outside the keyboard's strip.
  * The helper only learns that the eraser touched down somewhere, not where or for
  * how long, so taps are all it can tell apart. The app underneath gets the taps too.
@@ -145,6 +156,10 @@ class Shortcuts(context: Context) {
     fun action(b: ButtonPress): Action = prefs.getString(b.key, null)?.let(::Action) ?: b.default
 
     fun setAction(b: ButtonPress, a: Action) = prefs.edit().putString(b.key, a.code).apply()
+
+    fun action(t: PageTap): Action = prefs.getString(t.key, null)?.let(::Action) ?: t.default
+
+    fun setAction(t: PageTap, a: Action) = prefs.edit().putString(t.key, a.code).apply()
 
     fun action(t: AnywhereTap): Action = prefs.getString(t.key, null)?.let(::Action) ?: t.default
 

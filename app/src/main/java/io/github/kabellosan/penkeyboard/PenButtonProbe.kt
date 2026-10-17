@@ -120,14 +120,18 @@ class PenButtonProbe : AccessibilityService() {
 
     private fun onTouchAnywhere(e: MotionEvent) {
         val tool = e.getToolType(0)
-        if (tool != MotionEvent.TOOL_TYPE_ERASER) {
-            // Once per kind and start, so the log shows the watcher works without filling up.
-            if (seenTools.add(tool)) record(this, "Anywhere: ${toolName(tool)} seen (watching works)")
-            return
-        }
         // Android hides where a touch landed only when it landed in another app. So a
         // position means the keyboard's own strip, whose taps are its shortcuts.
         val onKeyboard = PenIME.shown && (e.x != 0f || e.y != 0f)
+        if (tool != MotionEvent.TOOL_TYPE_ERASER) {
+            // Once per kind and start, so the log shows the watcher works without filling up.
+            if (seenTools.add(tool)) record(this, "Anywhere: ${toolName(tool)} seen (watching works)")
+            if (tool == MotionEvent.TOOL_TYPE_STYLUS && !onKeyboard) {
+                tipDowns.addLast(e.eventTime)
+                while (tipDowns.size > 8) tipDowns.removeFirst()
+            }
+            return
+        }
         val skip = when {
             onKeyboard -> "the keyboard"
             else -> rootInActiveWindow?.packageName?.toString()?.takeIf { it == packageName || it in PEN_APPS }
@@ -142,6 +146,20 @@ class PenButtonProbe : AccessibilityService() {
         record(this, "Anywhere: eraser tap $taps")
         main.removeCallbacks(finishTaps)
         main.postDelayed(finishTaps, TAP_GAP_MS)
+    }
+
+    /** When the pen tip last touched down outside the keyboard, oldest first. */
+    private val tipDowns = ArrayDeque<Long>()
+
+    /**
+     * How many tip touches started in the [windowMs] before [time] (both uptime ms),
+     * forgetting them so they count once. For page button + tip taps: Boox sends a
+     * page press only when the button is let go, so the taps come before the key.
+     */
+    fun takeTipTaps(time: Long, windowMs: Long): Int {
+        val n = tipDowns.count { it in (time - windowMs)..time }
+        if (n > 0) tipDowns.clear()
+        return n
     }
 
     private fun toolName(tool: Int) = when (tool) {

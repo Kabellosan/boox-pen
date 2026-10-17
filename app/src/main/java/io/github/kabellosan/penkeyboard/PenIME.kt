@@ -76,6 +76,8 @@ class PenIME : InputMethodService(), InkView.Listener {
     // Boox sends each page-button press only on release (down and up 1-3 ms apart),
     // sometimes 0.7 s after the previous one, and drops one of two very fast presses.
     private val pressGapMs = 900L
+    /** How far back from a page button's release tip taps count as done while holding it. */
+    private val pageTapWindowMs = 1500L
     private val finishPress = Runnable {
         val up = pressLayer == Layer.PAGE_UP
         val press = when {
@@ -238,8 +240,35 @@ class PenIME : InputMethodService(), InkView.Listener {
         val quick = held < 500
         PenButtonProbe.record(this, "  up after $held ms" + (if (strokeDuringHold) ", drew" else "") +
             (if (quick && !strokeDuringHold) ", press ${pressCount + 1}" else ", not counted"))
+        if (!strokeDuringHold && quick && pageTaps(layer, event)) return true
         if (!strokeDuringHold && quick) countPress(layer)
         else if (pressLayer != null) finishPress.run()
+        return true
+    }
+
+    /**
+     * Page button held while the tip tapped the screen two or three times (seen by
+     * the helper anywhere outside the strip). True if that was it and it ran.
+     */
+    private fun pageTaps(layer: Layer, event: KeyEvent): Boolean {
+        val taps = PenButtonProbe.instance?.takeTipTaps(event.eventTime, pageTapWindowMs) ?: return false
+        if (taps < 2) return false
+        val up = layer == Layer.PAGE_UP
+        val tap = when {
+            taps >= 3 -> if (up) PageTap.UP_TRIPLE else PageTap.DOWN_TRIPLE
+            else -> if (up) PageTap.UP_DOUBLE else PageTap.DOWN_DOUBLE
+        }
+        // These taps were the shortcut, not part of a press count.
+        main.removeCallbacks(finishPress)
+        pressLayer = null
+        pressCount = 0
+        val action = shortcuts.action(tap)
+        try {
+            perform(action)
+            PenButtonProbe.record(this, "Keyboard: ${tap.label} → ${action.label(packageManager)}")
+        } catch (e: Exception) {
+            PenButtonProbe.record(this, "Keyboard: ${tap.label} → ${action.label(packageManager)} failed: ${e.message}")
+        }
         return true
     }
 
