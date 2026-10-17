@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, closed]
   workflow_dispatch:
 
 permissions:
@@ -11,6 +12,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,3 +47,38 @@ jobs:
             --target "${{ github.sha }}" \
             --title "Build ${{ github.run_number }}" \
             --notes "$(git log -1 --pretty=%s)"
+
+      # On a PR from this repo, publish the APK as a pre-release ("test build"),
+      # so the app's update screen can offer it before the PR is merged.
+      # Only the PR's newest test build is kept.
+      - name: Publish test build
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          for tag in $(gh release list --limit 100 --json tagName --jq ".[].tagName | select(startswith(\"pr$PR-\"))"); do
+            gh release delete "$tag" --cleanup-tag -y
+          done
+          gh release create "pr$PR-build-${{ github.run_number }}" \
+            "pen-keyboard-${{ github.run_number }}.apk" \
+            --prerelease \
+            --target "${{ github.event.pull_request.head.sha }}" \
+            --title "Test build ${{ github.run_number }} (PR #$PR)" \
+            --notes "$PR_TITLE"
+
+  # A closed PR's test build goes away with it.
+  remove-test-build:
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete test builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          for tag in $(gh release list --limit 100 --json tagName --jq ".[].tagName | select(startswith(\"pr$PR-\"))"); do
+            gh release delete "$tag" --cleanup-tag -y
+          done
