@@ -102,7 +102,8 @@ class SetupActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        probeLog.text = PenButtonProbe.log(this).ifEmpty { "Probe: no keys seen yet." }
+        val helper = if (PenButtonProbe.instance != null) "Helper: on" else "Helper: off (Pen Pad and page-button shortcuts need it)"
+        probeLog.text = helper + "\n" + PenButtonProbe.log(this).ifEmpty { "No keys seen yet." }
     }
 
     override fun onDestroy() {

@@ -83,10 +83,13 @@ class PenIME : InputMethodService(), InkView.Listener {
         pressLayer = null
         pressCount = 0
         // A key press must never take the app down (the helper service shares its process).
+        val action = shortcuts.action(press)
         try {
-            perform(shortcuts.action(press))
+            perform(action)
+            PenButtonProbe.record(this, "Keyboard: ${press.label} → ${action.label(packageManager)}")
         } catch (e: Exception) {
             Log.w(PenApp.TAG, "Page button action failed: ${e.message}")
+            PenButtonProbe.record(this, "Keyboard: ${press.label} → ${action.label(packageManager)} failed: ${e.message}")
         }
     }
 
