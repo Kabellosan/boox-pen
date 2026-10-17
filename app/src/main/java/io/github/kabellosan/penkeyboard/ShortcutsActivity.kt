@@ -16,7 +16,7 @@ import android.widget.TextView
 
 /**
  * Pen shortcuts: pick what each button gesture does, and record your own shapes
- * (a T for Telegram, a circle for…) to draw with the button held or in the quick pad.
+ * (a T for Telegram, a circle for…) to draw with the button held or in Pad Launch.
  */
 class ShortcutsActivity : Activity() {
 
@@ -65,7 +65,7 @@ class ShortcutsActivity : Activity() {
 
         list.addView(text("\nYour gestures", 22f))
         list.addView(text("Draw one with the button held on the keyboard's empty strip, " +
-            "with a page button held, or with the tip in the quick pad.", 16f))
+            "with a page button held, or with the tip in Pad Launch.", 16f))
         val gestures = shortcuts.gestures()
         if (gestures.isEmpty()) list.addView(text("(none yet)", 18f))
         for (g in gestures) {

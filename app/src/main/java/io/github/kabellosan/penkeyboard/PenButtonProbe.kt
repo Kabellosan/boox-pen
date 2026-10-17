@@ -24,7 +24,7 @@ import java.util.Locale
  * Probe: apps only get pen strokes inside their own windows, so button-held drawing
  * can't work everywhere. But an accessibility service sees hardware key events
  * from every app. If the Go 7's button sends one, a button click anywhere could
- * open the quick pad. This service only records which keys arrive (never what
+ * open Pad Launch. This service only records which keys arrive (never what
  * is typed on screen) and passes them all on untouched.
  */
 class PenButtonProbe : AccessibilityService() {

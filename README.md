@@ -43,10 +43,10 @@ press, or draw on the keyboard's strip. The **Pen shortcuts** screen (button in 
 app) sets what each does:
 
 - Tap twice, tap three times, press and hold, swipe sideways: each gets an action
-  (Send, switch DA/EN, open the quick pad, delete the last word, go back, open an app,
+  (Send, switch DA/EN, open Pad Launch, delete the last word, go back, open an app,
   or nothing). Go back needs **Pen Keyboard helper** switched on in Accessibility settings.
 - Your own gestures: **Add a gesture**, draw the shape two or three times, pick an
-  action. Draw it with the button held on an empty strip, or with the tip in the quick pad.
+  action. Draw it with the button held on an empty strip, or with the tip in Pad Launch.
   A T for Telegram, a circle for anything you like.
 
 - Page buttons: hold the Go 7's page Up or Down button and tap or draw with the tip
@@ -78,13 +78,13 @@ field's send action, **Done** closes the pad.
 It needs **Pen Keyboard helper** switched on (Accessibility settings): the helper
 remembers the last text field you tapped in another app and writes into it.
 
-## Pen Launcher (quick pad)
+## Pad Launch
 
-The app also installs a second icon, **Pen Launcher**. Write an app name ("Tele")
+The app also installs a second icon, **Pad Launch**. Write an app name ("Tele")
 and lift the pen: if exactly one app's name starts with it, that app opens;
 otherwise up to four matches are shown to tap.
 To open it with a hardware button: Boox Settings → button settings → map a button
-to open the **Pen Launcher** app.
+to open the **Pad Launch** app.
 
 ## Code
 
@@ -95,7 +95,7 @@ to open the **Pen Launcher** app.
 - `PenIME.kt`: the keyboard service: commit timing, spacing, candidates, keys.
 - `PenApp.kt`: hidden-API exemptions the Onyx SDK needs (hence `targetSdk 29`).
 - `SetupActivity.kt`: the setup screen.
-- `LauncherActivity.kt`, `AppMatcher.kt`: Pen Launcher (handwriting → open app).
+- `LauncherActivity.kt`, `AppMatcher.kt`: Pad Launch (handwriting → open app).
 - `ButtonGestures.kt`: groups button-held contacts into taps, a press, or a drawn shape.
 - `Shortcuts.kt`: shortcut settings, actions, and the $P shape matcher.
 - `ShortcutsActivity.kt`, `RecordGestureActivity.kt`: the Pen shortcuts screens.

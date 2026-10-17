@@ -23,7 +23,7 @@ data class Action(val code: String) {
         NONE -> "Nothing"
         SEND -> "Send / Enter"
         LANG -> "Switch DA/EN"
-        QUICK_PAD -> "Open quick pad"
+        QUICK_PAD -> "Open Pad Launch"
         DELETE_WORD -> "Delete last word"
         BACK -> "Go back"
         PEN_PAD -> "Open Pen Pad"

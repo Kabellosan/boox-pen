@@ -13,7 +13,7 @@ import android.widget.TextView
 import androidx.core.view.doOnLayout
 
 /**
- * Pen launcher, also called the quick pad: write an app name ("Tele") and that
+ * Pad Launch: write an app name ("Tele") and that
  * app opens, or draw one of your recorded gestures (Pen shortcuts) to run it.
  * Has its own home-screen icon so a Boox button can be mapped to open it.
  *
