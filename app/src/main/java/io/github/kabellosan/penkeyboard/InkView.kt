@@ -72,6 +72,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         // Some firmware reports the eraser as a drawing stroke with eraser = true
         // instead of using the erasing callbacks, so both routes lead to erasing.
         override fun onBeginRawDrawing(eraser: Boolean, p: TouchPoint) {
+            rawBegins++
             main.post { if (eraser) beginErase(p) else beginStroke(p.x, p.y, p.timestamp) }
         }
 
@@ -97,6 +98,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         }
 
         override fun onBeginRawErasing(eraser: Boolean, p: TouchPoint) {
+            rawBegins++
             main.post { beginErase(p) }
         }
 
@@ -131,7 +133,10 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
             enableSideButtonErase(th)
             th.setRawDrawingRenderEnabled(true)
             th.setRawDrawingEnabled(true)
+            penStarts++
+            penState = "on ${limit.width()}x${limit.height()}"
         } catch (e: Throwable) {
+            penState = "failed: ${e.javaClass.simpleName} ${e.message}"
             Log.w(PenApp.TAG, "Onyx TouchHelper unavailable, using plain touch: ${e.message}")
             touchHelper = null
         }
@@ -149,15 +154,23 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         }
     }
 
-    private var lastRestart = 0L
+    // ── Diagnostics (shown on Pad Launch while we chase the missing-ink bug) ──
+    @Volatile private var rawBegins = 0
+    private var viewPenDowns = 0
+    private var viewFingerDowns = 0
+    private var penStarts = 0
+    private var penState = "not started"
 
-    /** Re-opens raw drawing, at most once a second. */
-    fun restartPen() {
-        val now = SystemClock.uptimeMillis()
-        if (now - lastRestart < 1000) return
-        lastRestart = now
-        Log.i(PenApp.TAG, "Raw drawing was off, restarting it")
-        startPen()
+    /** One line: is raw drawing on, who owns it, which events arrive where. */
+    fun diagnostics(): String {
+        val who = when (val o = owner) {
+            null -> "none"
+            this -> "this pad"
+            else -> o.context.javaClass.simpleName
+        }
+        return "boox=$isBoox pen=$penState starts=$penStarts owner=$who " +
+            "onyxStrokes=$rawBegins viewPen=$viewPenDowns viewFinger=$viewFingerDowns " +
+            "focus=${hasWindowFocus()}"
     }
 
     /** Stops pen capture. Call when the keyboard is hidden. */
@@ -166,6 +179,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         // on last may turn it off, so the keyboard hiding late can't kill Pad Launch's.
         if (owner !== this) return
         owner = null
+        penState = "stopped"
         try {
             touchHelper?.setRawDrawingEnabled(false)
             touchHelper?.closeRawDrawing()
@@ -263,15 +277,10 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (usingOnyx) {
-            // While raw drawing is on, the Onyx SDK takes the pen and this view never
-            // sees it. A pen touch arriving here means raw drawing was switched off
-            // under us (another screen of this app closed it after we opened it), so
-            // turn it back on; the next stroke draws normally.
-            val pen = e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS || isEraser(e)
-            if (pen && e.actionMasked == MotionEvent.ACTION_DOWN) restartPen()
-            return pen
+        if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+            if (e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS || isEraser(e)) viewPenDowns++ else viewFingerDowns++
         }
+        if (usingOnyx) return false
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN ->
                 if (isEraser(e)) beginErase(e.x, e.y, e.eventTime) else beginStroke(e.x, e.y, e.eventTime)
