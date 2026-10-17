@@ -3,13 +3,15 @@ package io.github.kabellosan.penkeyboard
 import android.content.ComponentName
 import android.content.Intent
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import android.os.UserManager
 import android.util.Log
 import java.text.Normalizer
 
-data class AppEntry(val label: String, val component: ComponentName)
+/** [frozen]: disabled or hidden, as Boox's app freezing seems to leave apps. */
+data class AppEntry(val label: String, val component: ComponentName, val frozen: Boolean = false)
 
 /**
  * Finds installed apps whose name matches what was written.
@@ -31,10 +33,10 @@ class AppMatcher(
     private fun loadApps(): List<AppEntry> {
         val found = LinkedHashMap<String, AppEntry>() // keyed by package
 
-        fun add(label: CharSequence?, component: ComponentName) {
+        fun add(label: CharSequence?, component: ComponentName, frozen: Boolean = false) {
             if (component.packageName == own || component.packageName in found) return
             val name = label?.toString()?.takeIf { it.isNotBlank() } ?: component.packageName
-            found[component.packageName] = AppEntry(name, component)
+            found[component.packageName] = AppEntry(name, component, frozen)
         }
 
         if (context != null) try {
@@ -64,6 +66,21 @@ class AppMatcher(
             }
         } catch (e: Throwable) {
             Log.w(PenApp.TAG, "Installed apps query failed: ${e.message}")
+        }
+
+        // Frozen apps (disabled or hidden) are left out of every query above.
+        try {
+            val flags = PackageManager.MATCH_DISABLED_COMPONENTS or PackageManager.MATCH_UNINSTALLED_PACKAGES
+            for (info in pm.getInstalledApplications(flags)) {
+                if (info.packageName in found) continue
+                val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(info.packageName)
+                val activity = pm.queryIntentActivities(main, flags).firstOrNull()?.activityInfo ?: continue
+                val installed = (info.flags and ApplicationInfo.FLAG_INSTALLED) != 0
+                add(info.loadLabel(pm), ComponentName(activity.packageName, activity.name),
+                    frozen = !info.enabled || !installed)
+            }
+        } catch (e: Throwable) {
+            Log.w(PenApp.TAG, "Frozen apps query failed: ${e.message}")
         }
 
         Log.i(PenApp.TAG, "AppMatcher: ${found.size} apps")
