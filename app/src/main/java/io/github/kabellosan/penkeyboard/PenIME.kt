@@ -73,7 +73,9 @@ class PenIME : InputMethodService(), InkView.Listener {
     private var strokeDuringHold = false
     private var pressLayer: Layer? = null
     private var pressCount = 0
-    private val pressGapMs = 400L
+    // Boox sends each page-button press only on release (down and up 1-3 ms apart),
+    // sometimes 0.7 s after the previous one, and drops one of two very fast presses.
+    private val pressGapMs = 900L
     private val finishPress = Runnable {
         val up = pressLayer == Layer.PAGE_UP
         val press = when {
