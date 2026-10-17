@@ -35,7 +35,7 @@ class LauncherActivity : Activity(), InkView.Listener {
         super.onCreate(savedInstanceState)
         recognizer = Recognizer()
         recognizer.downloadAll()
-        matcher = AppMatcher(packageManager, packageName)
+        matcher = AppMatcher(this)
 
         val dp = resources.displayMetrics.density
         status = TextView(this).apply {
@@ -122,7 +122,7 @@ class LauncherActivity : Activity(), InkView.Listener {
         val read = texts.firstOrNull().orEmpty()
         val matches = matcher.match(texts)
         if (matches.isEmpty()) {
-            status.text = if (read.isEmpty()) "Couldn't read that, try again" else "\"$read\": no app found"
+            status.text = if (read.isEmpty()) "Couldn't read that, try again" else "\"$read\": no app found (${matcher.apps.size} apps known)"
             return
         }
         // Open straight away when exactly one app's name starts with what was written.

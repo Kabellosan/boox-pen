@@ -2,23 +2,73 @@ package io.github.kabellosan.penkeyboard
 
 import android.content.ComponentName
 import android.content.Intent
+import android.content.Context
+import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
+import android.os.UserManager
+import android.util.Log
 import java.text.Normalizer
 
 data class AppEntry(val label: String, val component: ComponentName)
 
-/** Finds installed apps whose name matches what was written. */
-class AppMatcher(pm: PackageManager, ownPackage: String) {
+/**
+ * Finds installed apps whose name matches what was written.
+ *
+ * The app list is gathered three ways and merged, because Boox firmware has been
+ * seen to hide apps from a plain launcher query (Telegram was missing on a Go 7):
+ * LauncherApps (what home screens use, all profiles), the launcher intent query,
+ * and installed packages that have a launch intent.
+ */
+class AppMatcher(
+    private val pm: PackageManager,
+    private val own: String,
+    private val context: Context? = null, // needed for the LauncherApps source
+) {
+    constructor(context: Context) : this(context.packageManager, context.packageName, context)
 
-    val apps: List<AppEntry> = pm.queryIntentActivities(
-        Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0
-    ).map {
-        AppEntry(
-            it.loadLabel(pm).toString(),
-            ComponentName(it.activityInfo.packageName, it.activityInfo.name)
-        )
-    }.filter { it.component.packageName != ownPackage }
-        .distinctBy { it.component }
+    val apps: List<AppEntry> = loadApps()
+
+    private fun loadApps(): List<AppEntry> {
+        val found = LinkedHashMap<String, AppEntry>() // keyed by package
+
+        fun add(label: CharSequence?, component: ComponentName) {
+            if (component.packageName == own || component.packageName in found) return
+            val name = label?.toString()?.takeIf { it.isNotBlank() } ?: component.packageName
+            found[component.packageName] = AppEntry(name, component)
+        }
+
+        if (context != null) try {
+            val launcher = context.getSystemService(LauncherApps::class.java)
+            val users = context.getSystemService(UserManager::class.java).userProfiles
+            for (user in users) {
+                for (a in launcher.getActivityList(null, user)) add(a.label, a.componentName)
+            }
+        } catch (e: Throwable) {
+            Log.w(PenApp.TAG, "LauncherApps failed: ${e.message}")
+        }
+
+        try {
+            val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            for (r in pm.queryIntentActivities(main, PackageManager.MATCH_ALL)) {
+                add(r.loadLabel(pm), ComponentName(r.activityInfo.packageName, r.activityInfo.name))
+            }
+        } catch (e: Throwable) {
+            Log.w(PenApp.TAG, "Launcher query failed: ${e.message}")
+        }
+
+        try {
+            for (info in pm.getInstalledApplications(0)) {
+                if (info.packageName in found) continue
+                val component = pm.getLaunchIntentForPackage(info.packageName)?.component ?: continue
+                add(info.loadLabel(pm), component)
+            }
+        } catch (e: Throwable) {
+            Log.w(PenApp.TAG, "Installed apps query failed: ${e.message}")
+        }
+
+        Log.i(PenApp.TAG, "AppMatcher: ${found.size} apps")
+        return found.values.toList()
+    }
 
     /**
      * [candidates] are the recognizer's guesses, best first.
@@ -30,7 +80,9 @@ class AppMatcher(pm: PackageManager, ownPackage: String) {
             val q = norm(raw)
             if (q.isEmpty()) return@forEachIndexed
             for (app in apps) {
-                val s = score(q, norm(app.label)) - rank * 2
+                val byLabel = score(q, norm(app.label))
+                val byPackage = packageScore(q, app.component.packageName)
+                val s = maxOf(byLabel, byPackage) - rank * 2
                 if (s > 0 && s > (best[app] ?: 0)) best[app] = s
             }
         }
@@ -45,6 +97,16 @@ class AppMatcher(pm: PackageManager, ownPackage: String) {
                 .replace(Regex("\\p{M}"), "")
                 .replace(Regex("[^a-z0-9æøå ]"), "")
                 .trim()
+
+        /** Package names like org.telegram.messenger: a part starting with [q] counts, below a name match. */
+        fun packageScore(q: String, pkg: String): Int {
+            val qt = q.replace(" ", "")
+            if (qt.length < 3) return 0
+            val parts = pkg.lowercase().split('.').filter { it !in GENERIC_PARTS }
+            return if (parts.any { it.startsWith(qt) }) 85 else 0
+        }
+
+        private val GENERIC_PARTS = setOf("com", "org", "net", "io", "app", "android", "github", "google")
 
         fun score(q: String, label: String): Int {
             val tight = label.replace(" ", "")
