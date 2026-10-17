@@ -39,6 +39,8 @@ class PenButtonProbe : AccessibilityService() {
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
+        // A held key repeats its down event; one line per press is enough.
+        if (event.repeatCount > 0) return false
         val action = if (event.action == KeyEvent.ACTION_DOWN) "down" else "up"
         record(this, "${KeyEvent.keyCodeToString(event.keyCode)} $action (device ${event.deviceId}, source ${event.source})")
         return false
