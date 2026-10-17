@@ -43,7 +43,8 @@ press, or draw on the keyboard's strip. The **Pen shortcuts** screen (button in 
 app) sets what each does:
 
 - Tap twice, tap three times, press and hold, swipe sideways: each gets an action
-  (Send, switch DA/EN, open the quick pad, delete the last word, open an app, or nothing).
+  (Send, switch DA/EN, open the quick pad, delete the last word, go back, open an app,
+  or nothing). Go back needs **Pen Keyboard helper** switched on in Accessibility settings.
 - Your own gestures: **Add a gesture**, draw the shape two or three times, pick an
   action. Draw it with the button held on an empty strip, or with the tip in the quick pad.
   A T for Telegram, a circle for anything you like.

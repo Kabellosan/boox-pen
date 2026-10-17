@@ -25,6 +25,7 @@ data class Action(val code: String) {
         LANG -> "Switch DA/EN"
         QUICK_PAD -> "Open quick pad"
         DELETE_WORD -> "Delete last word"
+        BACK -> "Go back"
         else -> app?.let { c ->
             val name = runCatching { pm.getActivityInfo(c, 0).loadLabel(pm).toString() }.getOrNull()
             "Open ${name ?: c.packageName}"
@@ -38,7 +39,8 @@ data class Action(val code: String) {
         val LANG = Action("lang")
         val QUICK_PAD = Action("quickpad")
         val DELETE_WORD = Action("delete_word")
-        val BUILT_IN = listOf(NONE, SEND, LANG, QUICK_PAD, DELETE_WORD)
+        val BACK = Action("back")
+        val BUILT_IN = listOf(NONE, SEND, LANG, QUICK_PAD, DELETE_WORD, BACK)
         fun openApp(c: ComponentName) = Action(APP + c.flattenToString())
 
         fun launchIntent(c: ComponentName): Intent = Intent(Intent.ACTION_MAIN)

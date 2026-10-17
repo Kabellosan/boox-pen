@@ -1,5 +1,6 @@
 package io.github.kabellosan.penkeyboard
 
+import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -163,6 +164,7 @@ class PenIME : InputMethodService(), InkView.Listener {
             Action.SEND -> flushThen { enter() }
             Action.LANG -> toggleLanguage()
             Action.QUICK_PAD -> openLauncher()
+            Action.BACK -> flushThen { goBack() }
             Action.DELETE_WORD -> {
                 main.removeCallbacks(commitRunnable)
                 if (ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()
@@ -278,6 +280,20 @@ class PenIME : InputMethodService(), InkView.Listener {
     private fun openLauncher() {
         flushThen {
             startActivity(Intent(this, LauncherActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+    }
+
+    /**
+     * Android's Back. The helper service presses the real Back button; the keyboard
+     * hides first, or that press would only close the keyboard. Without the helper,
+     * a Back key goes to the app, which most apps treat the same.
+     */
+    private fun goBack() {
+        if (PenButtonProbe.instance != null) {
+            requestHideSelf(0)
+            main.postDelayed({ PenButtonProbe.instance?.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK) }, 150)
+        } else {
+            sendDownUpKeyEvents(KeyEvent.KEYCODE_BACK)
         }
     }
 

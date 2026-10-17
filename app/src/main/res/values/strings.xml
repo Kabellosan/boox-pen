@@ -2,6 +2,6 @@
     <string name="app_name">Pen Keyboard</string>
     <string name="ime_name">Pen Keyboard</string>
     <string name="launcher_name">Pen Launcher</string>
-    <string name="probe_name">Pen button probe</string>
-    <string name="probe_description">Test for Pen Keyboard: records which hardware keys (like the pen button) reach the system, so the button might work in every app. It never sees what you type on screen and passes every key on.</string>
+    <string name="probe_name">Pen Keyboard helper</string>
+    <string name="probe_description">Lets Pen Keyboard shortcuts press Back, and records which hardware keys (like the pen button) reach the system, to test whether the button could work in every app. It never sees what you type on screen and passes every key on.</string>
 </resources>
