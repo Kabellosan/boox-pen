@@ -79,6 +79,16 @@ enum class ButtonPress(val key: String, val label: String, val default: Action) 
     DOWN_DOUBLE("down_double", "Page Down double press", Action.BACK),
 }
 
+/**
+ * Eraser taps (the pen's button held) on any screen while the keyboard is hidden.
+ * The helper only learns that the eraser touched down somewhere, not where or for
+ * how long, so taps are all it can tell apart. The app underneath gets the taps too.
+ */
+enum class AnywhereTap(val key: String, val label: String, val default: Action) {
+    DOUBLE("anywhere_double", "Tap twice", Action.BACK),
+    TRIPLE("anywhere_triple", "Tap three times", Action.QUICK_PAD),
+}
+
 /** A shape the user recorded, drawn one or more times, and what it does. */
 class Gesture(val id: String, val samples: List<List<Stroke>>, val action: Action)
 
@@ -135,6 +145,10 @@ class Shortcuts(context: Context) {
     fun action(b: ButtonPress): Action = prefs.getString(b.key, null)?.let(::Action) ?: b.default
 
     fun setAction(b: ButtonPress, a: Action) = prefs.edit().putString(b.key, a.code).apply()
+
+    fun action(t: AnywhereTap): Action = prefs.getString(t.key, null)?.let(::Action) ?: t.default
+
+    fun setAction(t: AnywhereTap, a: Action) = prefs.edit().putString(t.key, a.code).apply()
 
     fun match(strokes: List<Stroke>, pm: PackageManager, layer: Layer = Layer.PEN): ShapeMatch? {
         matchGesture(strokes)?.let { (g, score) -> return ShapeMatch(g.action.label(pm), g.action, score) }

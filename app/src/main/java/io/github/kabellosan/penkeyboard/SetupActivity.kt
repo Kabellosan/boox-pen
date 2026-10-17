@@ -62,9 +62,9 @@ class SetupActivity : Activity() {
             textSize = 16f
         })
         root.addView(TextView(this).apply {
-            text = "\nSwitch on \"Pen Keyboard helper\" for the Go back shortcut. Button in every app? " +
-                "With the helper on, click the pen button (in the air and touching) in any other app " +
-                "and come back here."
+            text = "\nSwitch on \"Pen Keyboard helper\" for Go back, Pen Pad, and button taps on any " +
+                "screen: hold the pen's button and tap twice (Go back) or three times (Pad Launch). " +
+                "The log below shows what it saw."
             textSize = 18f
         })
         root.addView(TextView(this).apply {

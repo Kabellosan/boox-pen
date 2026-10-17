@@ -113,6 +113,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     }
 
     override fun onDestroy() {
+        shown = false
         recognizer.close()
         super.onDestroy()
     }
@@ -158,9 +159,11 @@ class PenIME : InputMethodService(), InkView.Listener {
         showCandidates(emptyMap())
         enterKey.text = if (sendsAction(info)) "Send" else "⏎"
         ink.post { ink.startPen() }
+        shown = true
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        shown = false
         main.removeCallbacks(commitRunnable)
         heldLayer = null
         ink.stopPen()
@@ -480,4 +483,10 @@ class PenIME : InputMethodService(), InkView.Listener {
     private fun weight(w: Float) = LinearLayout.LayoutParams(0, MATCH_PARENT, w)
 
     private fun Char.isPunct() = this in ".,!?;:)"
+
+    companion object {
+        /** True while the writing strip is on screen; its eraser taps are its own then. */
+        var shown = false
+            private set
+    }
 }
