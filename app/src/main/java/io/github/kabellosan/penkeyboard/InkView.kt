@@ -118,8 +118,11 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     }
 
     /** Starts pen capture. Call when the keyboard is shown and laid out. */
-    fun startPen() {
+    fun startPen(force: Boolean = false) {
         if (!isBoox || width == 0) return
+        // Re-opening raw drawing that is already ours resets the SDK mid-word and
+        // joins strokes with straight lines, so only do it when asked to.
+        if (!force && owner === this && penOn) return
         try {
             val th = touchHelper ?: TouchHelper.create(this, callback).also { touchHelper = it }
             owner = this
@@ -134,6 +137,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
             th.setRawDrawingRenderEnabled(true)
             th.setRawDrawingEnabled(true)
             penStarts++
+            penOn = true
             penState = "on ${limit.width()}x${limit.height()}"
         } catch (e: Throwable) {
             penState = "failed: ${e.javaClass.simpleName} ${e.message}"
@@ -160,6 +164,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     private var viewFingerDowns = 0
     private var penStarts = 0
     private var penState = "not started"
+    private var penOn = false
 
     /** One line: is raw drawing on, who owns it, which events arrive where. */
     fun diagnostics(): String {
@@ -179,6 +184,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         // on last may turn it off, so the keyboard hiding late can't kill Pad Launch's.
         if (owner !== this) return
         owner = null
+        penOn = false
         penState = "stopped"
         try {
             touchHelper?.setRawDrawingEnabled(false)
@@ -330,7 +336,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (touchHelper != null) post { startPen() }
+        if (touchHelper != null) post { startPen(force = true) }
     }
 
     companion object {
