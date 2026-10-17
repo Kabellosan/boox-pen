@@ -56,6 +56,12 @@ class SetupActivity : Activity() {
             startActivity(Intent(this, ShortcutsActivity::class.java))
         })
         root.addView(TextView(this).apply {
+            text = "Page buttons as shortcut keys: in Boox settings set Customize Buttons → Volume for " +
+                "the apps you write in, and the smart button's long press → None. Then hold Up or Down " +
+                "and tap or draw on the keyboard (set what they do in Pen shortcuts)."
+            textSize = 16f
+        })
+        root.addView(TextView(this).apply {
             text = "\nSwitch on \"Pen Keyboard helper\" for the Go back shortcut. Button in every app? " +
                 "With the helper on, click the pen button (in the air and touching) in any other app " +
                 "and come back here."

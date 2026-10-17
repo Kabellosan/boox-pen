@@ -158,6 +158,12 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         }
     }
 
+    /** True while a stroke is being drawn. */
+    val drawing get() = current != null
+
+    /** Wipes ink that is no longer in [strokes] off the screen. */
+    fun repaint() = redraw()
+
     /** Forgets the strokes and wipes the ink off the screen. */
     fun clear() {
         strokes.clear()

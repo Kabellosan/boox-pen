@@ -45,16 +45,20 @@ class ShortcutsActivity : Activity() {
     private fun refresh() {
         list.removeAllViews()
         list.addView(text("Pen shortcuts", 28f))
-        list.addView(text("Hold the pen's button and…", 18f))
-        for (t in Trigger.values()) {
-            list.addView(row("${t.label}:  ${shortcuts.action(t).label(packageManager)}") {
-                pickAction(this, shortcuts.action(t)) { a -> shortcuts.setAction(t, a); refresh() }
-            })
+        for (layer in Layer.values()) {
+            list.addView(text((if (layer == Layer.PEN) "" else "\n") + layer.label, 18f))
+            for (t in Trigger.values()) {
+                list.addView(row("${t.label}:  ${shortcuts.action(t, layer).label(packageManager)}") {
+                    pickAction(this, shortcuts.action(t, layer)) { a -> shortcuts.setAction(t, a, layer); refresh() }
+                })
+            }
         }
+        list.addView(text("Page buttons work while the pen keyboard is open. In Boox settings set " +
+            "Customize Buttons → Volume for the apps you write in, and the smart button's long press → None.", 16f))
 
         list.addView(text("\nYour gestures", 22f))
         list.addView(text("Draw one with the button held on the keyboard's empty strip, " +
-            "or with the tip in the quick pad.", 16f))
+            "with a page button held, or with the tip in the quick pad.", 16f))
         val gestures = shortcuts.gestures()
         if (gestures.isEmpty()) list.addView(text("(none yet)", 18f))
         for (g in gestures) {

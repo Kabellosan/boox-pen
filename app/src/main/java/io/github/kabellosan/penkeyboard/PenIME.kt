@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -49,6 +50,17 @@ class PenIME : InputMethodService(), InkView.Listener {
     private lateinit var buttonGestures: ButtonGestures
     private lateinit var shortcuts: Shortcuts
 
+    /**
+     * Page Up/Down held + tip strokes: shortcuts of that page button's layer.
+     * Boox sends the page buttons as volume keys when an app's buttons are set
+     * to Volume. The ink shows while drawing and is wiped once it is read.
+     */
+    private lateinit var pageGestures: ButtonGestures
+    private var heldLayer: Layer? = null
+    private var strokeLayer: Layer? = null
+    private var pageLayer = Layer.PAGE_UP
+    private var strokeStartedAt = 0L
+
     override fun onCreate() {
         super.onCreate()
         recognizer = Recognizer()
@@ -57,8 +69,12 @@ class PenIME : InputMethodService(), InkView.Listener {
         activeLang = Shortcuts.language(this)
         buttonGestures = ButtonGestures(10 * resources.displayMetrics.density,
             { trigger -> perform(shortcuts.action(trigger)) },
-            ::onShape,
+            { strokes -> onShape(strokes, Layer.PEN) },
             ::erase)
+        pageGestures = ButtonGestures(10 * resources.displayMetrics.density,
+            { trigger -> endPageGesture(); perform(shortcuts.action(trigger, pageLayer)) },
+            { strokes -> endPageGesture(); onShape(strokes, pageLayer) },
+            { endPageGesture() })
     }
 
     override fun onDestroy() {
@@ -111,6 +127,7 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         main.removeCallbacks(commitRunnable)
+        heldLayer = null
         ink.stopPen()
         ink.clear()
         super.onFinishInputView(finishingInput)
@@ -121,11 +138,53 @@ class PenIME : InputMethodService(), InkView.Listener {
     override fun onStrokeStart() {
         buttonGestures.flush()
         main.removeCallbacks(commitRunnable)
+        strokeLayer = heldLayer
+        if (strokeLayer != null) strokeStartedAt = SystemClock.uptimeMillis() else pageGestures.flush()
     }
 
     override fun onStrokeEnd() {
         main.removeCallbacks(commitRunnable)
-        main.postDelayed(commitRunnable, commitDelayMs)
+        val layer = strokeLayer
+        if (layer == null) {
+            main.postDelayed(commitRunnable, commitDelayMs)
+            return
+        }
+        // A page-button stroke is a shortcut, not writing: take it out of the ink.
+        strokeLayer = null
+        val stroke = ink.strokes.removeLastOrNull() ?: return
+        if (layer != pageLayer) pageGestures.flush()
+        pageLayer = layer
+        pageGestures.feed(stroke, SystemClock.uptimeMillis() - strokeStartedAt)
+    }
+
+    /** Wipes the page-button strokes off the screen once they are read. */
+    private fun endPageGesture() {
+        if (!ink.drawing) ink.repaint()
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val layer = pageButton(keyCode)
+        if (layer == null || !isInputViewShown) return super.onKeyDown(keyCode, event)
+        // Swallow the key so the volume doesn't change; repeats while held too.
+        if (event.repeatCount == 0) {
+            flushThen {}
+            heldLayer = layer
+        }
+        return true
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        val layer = pageButton(keyCode)
+        if (layer == null || !isInputViewShown) return super.onKeyUp(keyCode, event)
+        if (heldLayer == layer) heldLayer = null
+        return true
+    }
+
+    /** The Go 7's page buttons, as Boox sends them (volume keys) or as page keys. */
+    private fun pageButton(keyCode: Int): Layer? = when (keyCode) {
+        KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_PAGE_UP -> Layer.PAGE_UP
+        KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> Layer.PAGE_DOWN
+        else -> null
     }
 
     /**
@@ -149,9 +208,9 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (ink.strokes.isNotEmpty()) main.postDelayed(commitRunnable, commitDelayMs)
     }
 
-    /** A shape drawn with the button held: run the shortcut it matches, if any. */
-    private fun onShape(strokes: List<Stroke>) {
-        val match = shortcuts.match(strokes, packageManager)
+    /** A shape drawn with a button held: run the shortcut it matches, if any. */
+    private fun onShape(strokes: List<Stroke>, layer: Layer) {
+        val match = shortcuts.match(strokes, packageManager, layer)
         if (match == null) {
             showMessage("No shortcut for that shape")
             perform(Action.NONE)

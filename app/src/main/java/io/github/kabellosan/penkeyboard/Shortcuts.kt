@@ -58,6 +58,17 @@ enum class Trigger(val key: String, val label: String, val default: Action) {
     SWIPE("swipe", "Swipe sideways", Action.DELETE_WORD),
 }
 
+/**
+ * What is held while the pen taps or draws: the pen's own button, or one of the
+ * Go 7's page buttons (Boox sends them as volume keys; the keyboard reads them).
+ * Each layer has its own action per [Trigger]; recorded gestures are shared.
+ */
+enum class Layer(val prefix: String, val label: String) {
+    PEN("", "Hold the pen's button and…"),
+    PAGE_UP("up_", "Hold page Up and write…"),
+    PAGE_DOWN("down_", "Hold page Down and write…"),
+}
+
 /** A shape the user recorded, drawn one or more times, and what it does. */
 class Gesture(val id: String, val samples: List<List<Stroke>>, val action: Action)
 
@@ -73,9 +84,12 @@ class Shortcuts(context: Context) {
     private val prefs = context.getSharedPreferences("shortcuts", Context.MODE_PRIVATE)
     private val density = context.resources.displayMetrics.density
 
-    fun action(t: Trigger): Action = prefs.getString(t.key, null)?.let(::Action) ?: t.default
+    fun action(t: Trigger, layer: Layer = Layer.PEN): Action =
+        prefs.getString(layer.prefix + t.key, null)?.let(::Action)
+            ?: if (layer == Layer.PEN) t.default else Action.NONE
 
-    fun setAction(t: Trigger, a: Action) = prefs.edit().putString(t.key, a.code).apply()
+    fun setAction(t: Trigger, a: Action, layer: Layer = Layer.PEN) =
+        prefs.edit().putString(layer.prefix + t.key, a.code).apply()
 
     fun gestures(): List<Gesture> {
         val json = prefs.getString(GESTURES, null) ?: return emptyList()
@@ -108,9 +122,9 @@ class Shortcuts(context: Context) {
      * Matches a shape drawn with the button held: the user's gestures first,
      * then a plain sideways swipe. Null when nothing fits.
      */
-    fun match(strokes: List<Stroke>, pm: PackageManager): ShapeMatch? {
+    fun match(strokes: List<Stroke>, pm: PackageManager, layer: Layer = Layer.PEN): ShapeMatch? {
         matchGesture(strokes)?.let { (g, score) -> return ShapeMatch(g.action.label(pm), g.action, score) }
-        if (isSwipe(strokes)) return ShapeMatch(Trigger.SWIPE.label, action(Trigger.SWIPE), null)
+        if (isSwipe(strokes)) return ShapeMatch(Trigger.SWIPE.label, action(Trigger.SWIPE, layer), null)
         return null
     }
 
