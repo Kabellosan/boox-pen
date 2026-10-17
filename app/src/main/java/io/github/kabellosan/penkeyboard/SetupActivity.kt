@@ -2,6 +2,7 @@ package io.github.kabellosan.penkeyboard
 
 import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.view.Gravity
@@ -59,6 +60,14 @@ class SetupActivity : Activity() {
                 "With the helper on, click the pen button (in the air and touching) in any other app " +
                 "and come back here."
             textSize = 18f
+        })
+        root.addView(TextView(this).apply {
+            text = "If Android says \"Restricted setting\": tap App info below, then ⋮ (top right) → " +
+                "Allow restricted settings, then try again."
+            textSize = 16f
+        })
+        root.addView(button("App info (to allow restricted settings)") {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
         })
         root.addView(button("Open Accessibility settings") {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
