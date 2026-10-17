@@ -66,6 +66,18 @@ class PenIME : InputMethodService(), InkView.Listener {
         super.onDestroy()
     }
 
+    // Hardware keys reach the keyboard before the app: log them to see whether
+    // the Go 7's page buttons could work as modifiers.
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        PenButtonProbe.logKey(this, "keyboard", event)
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        PenButtonProbe.logKey(this, "keyboard", event)
+        return super.onKeyUp(keyCode, event)
+    }
+
     // The writing strip must never take over the whole screen in landscape.
     override fun onEvaluateFullscreenMode(): Boolean = false
 

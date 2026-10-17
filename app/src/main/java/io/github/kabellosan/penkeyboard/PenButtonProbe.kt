@@ -45,10 +45,7 @@ class PenButtonProbe : AccessibilityService() {
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
-        // A held key repeats its down event; one line per press is enough.
-        if (event.repeatCount > 0) return false
-        val action = if (event.action == KeyEvent.ACTION_DOWN) "down" else "up"
-        record(this, "${KeyEvent.keyCodeToString(event.keyCode)} $action (device ${event.deviceId}, source ${event.source})")
+        logKey(this, "helper", event)
         return false
     }
 
@@ -128,6 +125,17 @@ class PenButtonProbe : AccessibilityService() {
 
         private const val PREFS = "pen_button_probe"
         private const val LOG = "log"
+
+        /**
+         * Logs a hardware key seen by [where] (the helper, the keyboard or the setup
+         * app), so the log shows how far a Boox button press gets.
+         */
+        fun logKey(context: Context, where: String, event: KeyEvent) {
+            // A held key repeats its down event; one line per press is enough.
+            if (event.repeatCount > 0) return
+            val action = if (event.action == KeyEvent.ACTION_DOWN) "down" else "up"
+            record(context, "$where: ${KeyEvent.keyCodeToString(event.keyCode)} $action (device ${event.deviceId}, source ${event.source})")
+        }
 
         private fun record(context: Context, line: String) {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

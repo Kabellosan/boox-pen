@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.KeyEvent
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
@@ -96,7 +97,14 @@ class SetupActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        probeLog.text = PenButtonProbe.log(this).ifEmpty { "Probe: no keys seen yet." }
+        val helper = if (PenButtonProbe.instance != null) "Helper is running." else "Helper is NOT running."
+        probeLog.text = "$helper Keys seen:\n" + PenButtonProbe.log(this).ifEmpty { "none yet." }
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        PenButtonProbe.logKey(this, "this app", event)
+        probeLog.text = PenButtonProbe.log(this)
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onDestroy() {
