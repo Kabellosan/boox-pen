@@ -86,7 +86,6 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         // Some firmware reports the eraser as a drawing stroke with eraser = true
         // instead of using the erasing callbacks, so both routes lead to erasing.
         override fun onBeginRawDrawing(eraser: Boolean, p: TouchPoint) {
-            rawBegins++
             main.post { if (eraser) beginErase(p) else beginStroke(p.x, p.y, p.timestamp) }
         }
 
@@ -112,7 +111,6 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         }
 
         override fun onBeginRawErasing(eraser: Boolean, p: TouchPoint) {
-            rawBegins++
             main.post { beginErase(p) }
         }
 
@@ -150,11 +148,8 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
             enableSideButtonErase(th)
             th.setRawDrawingRenderEnabled(true)
             th.setRawDrawingEnabled(true)
-            penStarts++
             penOn = true
-            penState = "on ${limit.width()}x${limit.height()}"
         } catch (e: Throwable) {
-            penState = "failed: ${e.javaClass.simpleName} ${e.message}"
             Log.w(PenApp.TAG, "Onyx TouchHelper unavailable, using plain touch: ${e.message}")
             touchHelper = null
         }
@@ -172,25 +167,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         }
     }
 
-    // ── Diagnostics (shown on Pad Launch while we chase the missing-ink bug) ──
-    @Volatile private var rawBegins = 0
-    private var viewPenDowns = 0
-    private var viewFingerDowns = 0
-    private var penStarts = 0
-    private var penState = "not started"
     private var penOn = false
-
-    /** One line: is raw drawing on, who owns it, which events arrive where. */
-    fun diagnostics(): String {
-        val who = when (val o = owner) {
-            null -> "none"
-            this -> "this pad"
-            else -> o.context.javaClass.simpleName
-        }
-        return "boox=$isBoox pen=$penState starts=$penStarts owner=$who " +
-            "onyxStrokes=$rawBegins viewPen=$viewPenDowns viewFinger=$viewFingerDowns " +
-            "focus=${hasWindowFocus()}"
-    }
 
     /**
      * Where the pen may ink: the visible view, or inside the box when there is one,
@@ -212,7 +189,6 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         if (owner !== this) return
         owner = null
         penOn = false
-        penState = "stopped"
         try {
             touchHelper?.setRawDrawingEnabled(false)
             touchHelper?.closeRawDrawing()
@@ -310,9 +286,6 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (e.actionMasked == MotionEvent.ACTION_DOWN) {
-            if (e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS || isEraser(e)) viewPenDowns++ else viewFingerDowns++
-        }
         if (usingOnyx) return false
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN ->
