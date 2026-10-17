@@ -151,10 +151,7 @@ class LauncherActivity : Activity(), InkView.Listener {
         val read = texts.firstOrNull().orEmpty()
         val matches = matcher.match(texts)
         if (matches.isEmpty()) {
-            status.text = if (read.isEmpty()) "Couldn't read that, try again" else "\"$read\": no app found (${matcher.apps.size} apps known)"
-            // Temporary: lets us see which apps the app list is missing.
-            choices.addView(button("Show the ${matcher.apps.size} apps I know") { showKnownApps() },
-                LinearLayout.LayoutParams(MATCH_PARENT, (56 * resources.displayMetrics.density).toInt()))
+            status.text = if (read.isEmpty()) "Couldn't read that, try again" else "\"$read\": no app found"
             return
         }
         // Open straight away when exactly one app's name starts with what was written.
@@ -169,20 +166,6 @@ class LauncherActivity : Activity(), InkView.Listener {
             choices.addView(button(app.label) { launch(app) },
                 LinearLayout.LayoutParams(MATCH_PARENT, (56 * dp).toInt()))
         }
-    }
-
-    private fun showKnownApps() {
-        val lines = matcher.apps.sortedBy { it.label.lowercase() }
-            .joinToString("\n") { "${it.label}  (${it.component.packageName})" + if (it.frozen) " frozen" else "" }
-        ink.stopPen() // or the pen would draw over the dialog
-        android.app.AlertDialog.Builder(this)
-            .setTitle("${matcher.apps.size} apps")
-            .setMessage("app list permission " +
-                (if (checkSelfPermission(GET_INSTALLED_APPS) == PackageManager.PERMISSION_GRANTED) "yes" else "no") +
-                ", " + matcher.report + "\n" + lines)
-            .setPositiveButton("OK", null)
-            .setOnDismissListener { ink.startPen() }
-            .show()
     }
 
     /**
