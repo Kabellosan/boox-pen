@@ -67,6 +67,16 @@ class LauncherActivity : Activity(), InkView.Listener {
         ink.doOnLayout { ink.startPen() }
     }
 
+    /**
+     * When opened from the keyboard, the keyboard hides only after this screen is
+     * up, and its stopPen() switches raw drawing off for the whole app. Opening it
+     * again once we have the focus wins that race.
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) main.postDelayed({ if (hasWindowFocus()) ink.startPen() }, 300)
+    }
+
     override fun onPause() {
         main.removeCallbacks(recognizeRunnable)
         ink.stopPen()

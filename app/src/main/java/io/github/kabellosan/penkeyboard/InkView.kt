@@ -148,6 +148,17 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         }
     }
 
+    private var lastRestart = 0L
+
+    /** Re-opens raw drawing, at most once a second. */
+    fun restartPen() {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastRestart < 1000) return
+        lastRestart = now
+        Log.i(PenApp.TAG, "Raw drawing was off, restarting it")
+        startPen()
+    }
+
     /** Stops pen capture. Call when the keyboard is hidden. */
     fun stopPen() {
         try {
@@ -247,7 +258,15 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (usingOnyx) return false
+        if (usingOnyx) {
+            // While raw drawing is on, the Onyx SDK takes the pen and this view never
+            // sees it. A pen touch arriving here means raw drawing was switched off
+            // under us (another screen of this app closed it after we opened it), so
+            // turn it back on; the next stroke draws normally.
+            val pen = e.getToolType(0) == MotionEvent.TOOL_TYPE_STYLUS || isEraser(e)
+            if (pen && e.actionMasked == MotionEvent.ACTION_DOWN) restartPen()
+            return pen
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN ->
                 if (isEraser(e)) beginErase(e.x, e.y, e.eventTime) else beginStroke(e.x, e.y, e.eventTime)
