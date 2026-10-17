@@ -29,13 +29,6 @@ class LauncherActivity : Activity(), InkView.Listener {
     private lateinit var status: TextView
     private lateinit var ink: InkView
     private lateinit var choices: LinearLayout
-    private lateinit var diag: TextView
-    private val diagRunnable = object : Runnable {
-        override fun run() {
-            diag.text = ink.diagnostics()
-            main.postDelayed(this, 500)
-        }
-    }
 
     private val pauseMs = 700L
     private val recognizeRunnable = Runnable { recognize() }
@@ -57,19 +50,11 @@ class LauncherActivity : Activity(), InkView.Listener {
         }
         ink = InkView(this, this)
         choices = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        // Temporary: pen diagnostics for the missing-ink bug.
-        diag = TextView(this).apply {
-            textSize = 12f
-            setTextColor(Color.DKGRAY)
-            val pad = (16 * dp).toInt()
-            setPadding(pad, 0, pad, 0)
-        }
 
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.WHITE)
             addView(status, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-            addView(diag, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(ink, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(choices, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(button("Clear") { reset() }, LinearLayout.LayoutParams(WRAP_CONTENT, (52 * dp).toInt()).apply {
@@ -82,12 +67,10 @@ class LauncherActivity : Activity(), InkView.Listener {
         super.onResume()
         reset()
         ink.doOnLayout { ink.startPen() }
-        main.post(diagRunnable)
     }
 
     override fun onPause() {
         main.removeCallbacks(recognizeRunnable)
-        main.removeCallbacks(diagRunnable)
         ink.stopPen()
         super.onPause()
     }
