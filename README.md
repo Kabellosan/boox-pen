@@ -53,7 +53,11 @@ app) sets what each does:
   on the keyboard. Each button has its own set of actions (tap twice, three times,
   press, swipe; recorded gestures are shared). Boox has to send the buttons as
   volume keys: set Customize Buttons → Volume for the apps you write in, and the
-  smart button's long press → None. The keyboard swallows those keys while it's open.
+  smart button's long press → None. Pen Keyboard swallows those keys.
+- Page buttons on their own: a press or double press of Up or Down runs an action
+  even with the keyboard hidden (defaults: Up double press opens Pen Pad, Down
+  double press goes back). Opening Pen Pad or an app from a hidden keyboard needs
+  Pen Keyboard helper switched on, since Android blocks background app starts.
 
 Over unrecognized ink, a button sweep still rubs out what it touches. On an empty
 strip, a shape that matches nothing does nothing (it says so in the guess row),

@@ -61,6 +61,23 @@ class PenIME : InputMethodService(), InkView.Listener {
     private var pageLayer = Layer.PAGE_UP
     private var strokeStartedAt = 0L
 
+    /** Page buttons pressed on their own: counted, then run as a [ButtonPress]. */
+    private var keyDownAt = 0L
+    private var strokeDuringHold = false
+    private var pressLayer: Layer? = null
+    private var pressCount = 0
+    private val pressGapMs = 350L
+    private val finishPress = Runnable {
+        val up = pressLayer == Layer.PAGE_UP
+        val press = when {
+            pressCount >= 2 -> if (up) ButtonPress.UP_DOUBLE else ButtonPress.DOWN_DOUBLE
+            else -> if (up) ButtonPress.UP_PRESS else ButtonPress.DOWN_PRESS
+        }
+        pressLayer = null
+        pressCount = 0
+        perform(shortcuts.action(press))
+    }
+
     override fun onCreate() {
         super.onCreate()
         recognizer = Recognizer()
@@ -139,7 +156,12 @@ class PenIME : InputMethodService(), InkView.Listener {
         buttonGestures.flush()
         main.removeCallbacks(commitRunnable)
         strokeLayer = heldLayer
-        if (strokeLayer != null) strokeStartedAt = SystemClock.uptimeMillis() else pageGestures.flush()
+        if (strokeLayer != null) {
+            strokeStartedAt = SystemClock.uptimeMillis()
+            strokeDuringHold = true
+        } else {
+            pageGestures.flush()
+        }
     }
 
     override fun onStrokeEnd() {
@@ -162,11 +184,18 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (!ink.drawing) ink.repaint()
     }
 
+    /**
+     * Page buttons. Every press is swallowed so the volume doesn't change. With the
+     * keyboard open, holding one makes pen strokes its shortcuts; a quick press with
+     * no strokes (or any press while the keyboard is hidden) counts toward a
+     * press or double press.
+     */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        val layer = pageButton(keyCode)
-        if (layer == null || !isInputViewShown) return super.onKeyDown(keyCode, event)
-        // Swallow the key so the volume doesn't change; repeats while held too.
-        if (event.repeatCount == 0) {
+        val layer = pageButton(keyCode) ?: return super.onKeyDown(keyCode, event)
+        if (event.repeatCount > 0) return true
+        keyDownAt = SystemClock.uptimeMillis()
+        strokeDuringHold = false
+        if (isInputViewShown) {
             flushThen {}
             heldLayer = layer
         }
@@ -174,10 +203,19 @@ class PenIME : InputMethodService(), InkView.Listener {
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        val layer = pageButton(keyCode)
-        if (layer == null || !isInputViewShown) return super.onKeyUp(keyCode, event)
+        val layer = pageButton(keyCode) ?: return super.onKeyUp(keyCode, event)
         if (heldLayer == layer) heldLayer = null
+        val quick = SystemClock.uptimeMillis() - keyDownAt < 500
+        if (!strokeDuringHold && quick) countPress(layer)
         return true
+    }
+
+    private fun countPress(layer: Layer) {
+        main.removeCallbacks(finishPress)
+        if (pressLayer != null && pressLayer != layer) finishPress.run()
+        pressLayer = layer
+        pressCount++
+        main.postDelayed(finishPress, pressGapMs)
     }
 
     /** The Go 7's page buttons, as Boox sends them (volume keys) or as page keys. */
@@ -227,6 +265,9 @@ class PenIME : InputMethodService(), InkView.Listener {
             Action.LANG -> toggleLanguage()
             Action.QUICK_PAD -> openLauncher()
             Action.BACK -> flushThen { goBack() }
+            Action.PEN_PAD -> flushThen {
+                startActivity(Intent(this, PenPadActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            }
             Action.DELETE_WORD -> {
                 main.removeCallbacks(commitRunnable)
                 if (ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()

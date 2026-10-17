@@ -53,7 +53,14 @@ class ShortcutsActivity : Activity() {
                 })
             }
         }
-        list.addView(text("Page buttons work while the pen keyboard is open. In Boox settings set " +
+        list.addView(text("\nPage buttons on their own", 18f))
+        for (b in ButtonPress.values()) {
+            list.addView(row("${b.label}:  ${shortcuts.action(b).label(packageManager)}") {
+                pickAction(this, shortcuts.action(b)) { a -> shortcuts.setAction(b, a); refresh() }
+            })
+        }
+        list.addView(text("Page buttons work wherever Pen Keyboard is your keyboard (presses also with " +
+            "the keyboard hidden; Pen Pad and apps open only with Pen Keyboard helper on). In Boox settings set " +
             "Customize Buttons → Volume for the apps you write in, and the smart button's long press → None.", 16f))
 
         list.addView(text("\nYour gestures", 22f))

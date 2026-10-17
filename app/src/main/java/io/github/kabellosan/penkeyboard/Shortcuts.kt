@@ -26,6 +26,7 @@ data class Action(val code: String) {
         QUICK_PAD -> "Open quick pad"
         DELETE_WORD -> "Delete last word"
         BACK -> "Go back"
+        PEN_PAD -> "Open Pen Pad"
         else -> app?.let { c ->
             val name = runCatching { pm.getActivityInfo(c, 0).loadLabel(pm).toString() }.getOrNull()
             "Open ${name ?: c.packageName}"
@@ -40,7 +41,8 @@ data class Action(val code: String) {
         val QUICK_PAD = Action("quickpad")
         val DELETE_WORD = Action("delete_word")
         val BACK = Action("back")
-        val BUILT_IN = listOf(NONE, SEND, LANG, QUICK_PAD, DELETE_WORD, BACK)
+        val PEN_PAD = Action("pen_pad")
+        val BUILT_IN = listOf(NONE, SEND, LANG, QUICK_PAD, PEN_PAD, DELETE_WORD, BACK)
         fun openApp(c: ComponentName) = Action(APP + c.flattenToString())
 
         fun launchIntent(c: ComponentName): Intent = Intent(Intent.ACTION_MAIN)
@@ -67,6 +69,14 @@ enum class Layer(val prefix: String, val label: String) {
     PEN("", "Hold the pen's button and…"),
     PAGE_UP("up_", "Hold page Up and write…"),
     PAGE_DOWN("down_", "Hold page Down and write…"),
+}
+
+/** Pressing a page button on its own, without the pen. */
+enum class ButtonPress(val key: String, val label: String, val default: Action) {
+    UP_PRESS("up_press", "Page Up press", Action.NONE),
+    UP_DOUBLE("up_double", "Page Up double press", Action.PEN_PAD),
+    DOWN_PRESS("down_press", "Page Down press", Action.NONE),
+    DOWN_DOUBLE("down_double", "Page Down double press", Action.BACK),
 }
 
 /** A shape the user recorded, drawn one or more times, and what it does. */
@@ -122,6 +132,10 @@ class Shortcuts(context: Context) {
      * Matches a shape drawn with the button held: the user's gestures first,
      * then a plain sideways swipe. Null when nothing fits.
      */
+    fun action(b: ButtonPress): Action = prefs.getString(b.key, null)?.let(::Action) ?: b.default
+
+    fun setAction(b: ButtonPress, a: Action) = prefs.edit().putString(b.key, a.code).apply()
+
     fun match(strokes: List<Stroke>, pm: PackageManager, layer: Layer = Layer.PEN): ShapeMatch? {
         matchGesture(strokes)?.let { (g, score) -> return ShapeMatch(g.action.label(pm), g.action, score) }
         if (isSwipe(strokes)) return ShapeMatch(Trigger.SWIPE.label, action(Trigger.SWIPE, layer), null)

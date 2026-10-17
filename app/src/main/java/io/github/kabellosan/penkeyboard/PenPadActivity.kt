@@ -161,6 +161,7 @@ class PenPadActivity : Activity(), InkView.Listener {
                 if (ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()
             }
             Action.BACK -> flushThen { finish() }
+            Action.PEN_PAD -> {}
             else -> action.app?.let { app ->
                 flushThen {
                     startActivity(Action.launchIntent(app))
