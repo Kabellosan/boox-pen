@@ -120,6 +120,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         if (!isBoox || width == 0) return
         try {
             val th = touchHelper ?: TouchHelper.create(this, callback).also { touchHelper = it }
+            owner = this
             th.openRawDrawing()
             val limit = Rect().also { getLocalVisibleRect(it) }
             th.setLimitRect(limit, emptyList())
@@ -161,6 +162,10 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
 
     /** Stops pen capture. Call when the keyboard is hidden. */
     fun stopPen() {
+        // Raw drawing is one switch for the whole app: only the view that turned it
+        // on last may turn it off, so the keyboard hiding late can't kill Pad Launch's.
+        if (owner !== this) return
+        owner = null
         try {
             touchHelper?.setRawDrawingEnabled(false)
             touchHelper?.closeRawDrawing()
@@ -317,5 +322,10 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (touchHelper != null) post { startPen() }
+    }
+
+    companion object {
+        /** The InkView that last started raw drawing. */
+        private var owner: InkView? = null
     }
 }
