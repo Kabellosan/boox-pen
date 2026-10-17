@@ -1,6 +1,7 @@
 package io.github.kabellosan.penkeyboard
 
 import android.accessibilityservice.AccessibilityService
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -11,6 +12,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -136,8 +138,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         langKey = key(activeLang.uppercase()) { toggleLanguage() }
         keys.addView(langKey, weight(1f))
         keys.addView(key("⌨") { switchKeyboard() }, weight(1f))
-        keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(3f))
-        keys.addView(key("⌫") { backspace() }, weight(1.5f))
+        keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(2.5f))
+        keys.addView(deleteKey(), weight(2.5f))
         enterKey = key("⏎") { flushThen { enter() } }
         enterKey.setOnLongClickListener { flushThen { commit("\n", remember = false) }; true }
         keys.addView(enterKey, weight(1.5f))
@@ -150,7 +152,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         }, LinearLayout.LayoutParams(MATCH_PARENT, (44 * dp).toInt()))
 
         ink = InkView(this, this)
-        root.addView(ink, LinearLayout.LayoutParams(MATCH_PARENT, (200 * dp).toInt()))
+        root.addView(ink, LinearLayout.LayoutParams(MATCH_PARENT, (280 * dp).toInt()))
 
         return root
     }
@@ -167,6 +169,7 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         main.removeCallbacks(commitRunnable)
+        main.removeCallbacks(repeatDelete)
         heldLayer = null
         ink.stopPen()
         ink.clear()
@@ -387,6 +390,50 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (ink.strokes.isNotEmpty()) { ink.clear(); return }
         lastCommitted = null
         sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+    }
+
+    /**
+     * Held delete: after a pause it repeats slowly, then switches to whole words.
+     * E-ink shows each change late, so a fast character repeat would overshoot
+     * before you see it; a few word steps are easy to stop in time.
+     */
+    private var deleteHeldAt = 0L
+    private val repeatDelete: Runnable = object : Runnable {
+        override fun run() {
+            val held = SystemClock.uptimeMillis() - deleteHeldAt
+            if (held < 1800) {
+                lastCommitted = null
+                sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+                main.postDelayed(this, 180)
+            } else {
+                deleteLastWord()
+                main.postDelayed(this, 450)
+            }
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun deleteKey() = key("⌫") {}.apply {
+        textSize = 28f
+        setOnClickListener(null)
+        setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.isPressed = true
+                    val hadInk = ink.strokes.isNotEmpty()
+                    backspace()
+                    if (!hadInk) {
+                        deleteHeldAt = SystemClock.uptimeMillis()
+                        main.postDelayed(repeatDelete, 500)
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.isPressed = false
+                    main.removeCallbacks(repeatDelete)
+                }
+            }
+            true
+        }
     }
 
     private fun enter() {
