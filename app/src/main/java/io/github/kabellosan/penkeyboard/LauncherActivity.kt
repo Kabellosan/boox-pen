@@ -173,7 +173,7 @@ class LauncherActivity : Activity(), InkView.Listener {
 
     private fun showKnownApps() {
         val lines = matcher.apps.sortedBy { it.label.lowercase() }
-            .joinToString("\n") { "${it.label}  (${it.component.packageName})" }
+            .joinToString("\n") { "${it.label}  (${it.component.packageName})" + if (it.frozen) " frozen" else "" }
         ink.stopPen() // or the pen would draw over the dialog
         android.app.AlertDialog.Builder(this)
             .setTitle("${matcher.apps.size} apps")
@@ -205,8 +205,14 @@ class LauncherActivity : Activity(), InkView.Listener {
     }
 
     private fun launch(app: AppEntry) {
-        startActivity(Action.launchIntent(app.component))
-        finish()
+        try {
+            startActivity(Action.launchIntent(app.component))
+            finish()
+        } catch (e: Exception) {
+            // Typically a frozen app: Android won't start a disabled one.
+            choices.removeAllViews()
+            status.text = "Couldn't open ${app.label}" + if (app.frozen) ": it's frozen in Boox, unfreeze it there" else ""
+        }
     }
 
     private fun reset() {
