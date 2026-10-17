@@ -73,7 +73,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     private var strokeDuringHold = false
     private var pressLayer: Layer? = null
     private var pressCount = 0
-    private val pressGapMs = 350L
+    private val pressGapMs = 400L
     private val finishPress = Runnable {
         val up = pressLayer == Layer.PAGE_UP
         val press = when {
@@ -213,6 +213,10 @@ class PenIME : InputMethodService(), InkView.Listener {
             if (isInputViewShown) " (keyboard open)" else " (keyboard hidden)")
         keyDownAt = SystemClock.uptimeMillis()
         strokeDuringHold = false
+        // A press is still being counted: wait for this one's release before deciding,
+        // so the gap is measured from release to the next press, not release to release.
+        main.removeCallbacks(finishPress)
+        if (pressLayer != null && pressLayer != layer) finishPress.run()
         if (isInputViewShown) {
             flushThen {}
             heldLayer = layer
@@ -225,12 +229,12 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (heldLayer == layer) heldLayer = null
         val quick = SystemClock.uptimeMillis() - keyDownAt < 500
         if (!strokeDuringHold && quick) countPress(layer)
+        else if (pressLayer != null) finishPress.run()
         return true
     }
 
     private fun countPress(layer: Layer) {
         main.removeCallbacks(finishPress)
-        if (pressLayer != null && pressLayer != layer) finishPress.run()
         pressLayer = layer
         pressCount++
         main.postDelayed(finishPress, pressGapMs)
