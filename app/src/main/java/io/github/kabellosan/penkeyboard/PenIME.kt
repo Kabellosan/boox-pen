@@ -8,6 +8,7 @@ import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -56,6 +57,12 @@ class PenIME : InputMethodService(), InkView.Listener {
      * to Volume. The ink shows while drawing and is wiped once it is read.
      */
     private lateinit var pageGestures: ButtonGestures
+
+    /**
+     * Page-button presses arrive even before the keyboard has ever been shown,
+     * when its views don't exist yet.
+     */
+    private val hasView get() = ::ink.isInitialized
     private var heldLayer: Layer? = null
     private var strokeLayer: Layer? = null
     private var pageLayer = Layer.PAGE_UP
@@ -75,7 +82,12 @@ class PenIME : InputMethodService(), InkView.Listener {
         }
         pressLayer = null
         pressCount = 0
-        perform(shortcuts.action(press))
+        // A key press must never take the app down (the helper service shares its process).
+        try {
+            perform(shortcuts.action(press))
+        } catch (e: Exception) {
+            Log.w(PenApp.TAG, "Page button action failed: ${e.message}")
+        }
     }
 
     override fun onCreate() {
@@ -270,12 +282,12 @@ class PenIME : InputMethodService(), InkView.Listener {
             }
             Action.DELETE_WORD -> {
                 main.removeCallbacks(commitRunnable)
-                if (ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()
+                if (hasView && ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()
             }
             else -> action.app?.let { app -> flushThen { startActivity(Action.launchIntent(app)) } }
         }
         // Button taps pause the commit timer; ink still waiting gets read as usual.
-        if (ink.strokes.isNotEmpty()) {
+        if (hasView && ink.strokes.isNotEmpty()) {
             main.removeCallbacks(commitRunnable)
             main.postDelayed(commitRunnable, commitDelayMs)
         }
@@ -316,7 +328,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     /** If ink is waiting, turn it into text first, then run [action]. */
     private fun flushThen(action: () -> Unit) {
         main.removeCallbacks(commitRunnable)
-        if (ink.strokes.isEmpty()) action() else recognizeAndCommit(action)
+        if (!hasView || ink.strokes.isEmpty()) action() else recognizeAndCommit(action)
     }
 
     // ── Text output ─────────────────────────────────────────────────
@@ -378,7 +390,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     private fun toggleLanguage() {
         activeLang = if (activeLang == "da") "en" else "da"
         Shortcuts.setLanguage(this, activeLang)
-        langKey.text = activeLang.uppercase()
+        if (hasView) langKey.text = activeLang.uppercase()
     }
 
     private fun openLauncher() {
@@ -411,6 +423,7 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     /** Shows a short note in the candidate row. */
     private fun showMessage(text: String) {
+        if (!hasView) return
         candidateRow.removeAllViews()
         candidateRow.addView(TextView(this).apply {
             this.text = text
