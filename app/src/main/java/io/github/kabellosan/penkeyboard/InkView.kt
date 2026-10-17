@@ -7,6 +7,7 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
+import android.graphics.RectF
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -65,6 +66,19 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         color = Color.GRAY
         strokeWidth = resources.displayMetrics.density
     }
+
+    /**
+     * The box around the writing area, so it is plain where ink can go. Solid black:
+     * gray borders all but vanish on e-ink. Ink is held inside it by the limit rect.
+     */
+    private val frame = Paint().apply {
+        color = Color.BLACK
+        style = Paint.Style.STROKE
+        strokeWidth = 2f * resources.displayMetrics.density
+        isAntiAlias = true
+    }
+    private val frameInset = 6f * resources.displayMetrics.density
+    private val frameRadius = 8f * resources.displayMetrics.density
 
     // ── Onyx raw drawing ────────────────────────────────────────────
 
@@ -125,7 +139,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
             val th = touchHelper ?: TouchHelper.create(this, callback).also { touchHelper = it }
             owner = this
             th.openRawDrawing()
-            val limit = Rect().also { getLocalVisibleRect(it) }
+            val limit = writingRect()
             th.setLimitRect(limit, emptyList())
             th.setStrokeStyle(TouchHelper.STROKE_STYLE_FOUNTAIN)
             th.setStrokeWidth(paint.strokeWidth)
@@ -154,6 +168,19 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     }
 
     private var penOn = false
+
+    /**
+     * Where the pen may ink: the visible view, or inside the box when there is one,
+     * so a stroke can't spill over the border onto the keys or the app.
+     */
+    private fun writingRect(): Rect {
+        val r = Rect().also { getLocalVisibleRect(it) }
+        if (!transparent) {
+            val i = (frameInset + frame.strokeWidth + 2 * resources.displayMetrics.density).toInt()
+            r.inset(i, i)
+        }
+        return r
+    }
 
     /** Stops pen capture. Call when the keyboard is hidden. */
     fun stopPen() {
@@ -274,8 +301,12 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     override fun onDraw(canvas: Canvas) {
         if (!transparent) {
             canvas.drawColor(Color.WHITE)
+            val half = frame.strokeWidth / 2
+            val box = RectF(frameInset + half, frameInset + half, width - frameInset - half, height - frameInset - half)
+            canvas.drawRoundRect(box, frameRadius, frameRadius, frame)
             val y = height * 0.7f
-            canvas.drawLine(0f, y, width.toFloat(), y, baseline)
+            val margin = frameInset + 12 * resources.displayMetrics.density
+            canvas.drawLine(margin, y, width - margin, y, baseline)
         }
         // With the Onyx overlay this only matters after redraw(), which wipes the
         // overlay and leaves this view's own drawing on screen.

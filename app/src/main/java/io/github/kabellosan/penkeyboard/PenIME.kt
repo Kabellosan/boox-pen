@@ -1,6 +1,7 @@
 package io.github.kabellosan.penkeyboard
 
 import android.accessibilityservice.AccessibilityService
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -11,6 +12,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -21,7 +23,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Bare-bones pen keyboard: a writing strip, a row of candidates, a row of keys.
+ * Bare-bones pen keyboard: a row of keys, a row of candidates, a boxed writing strip.
  *
  * Write a word, lift the pen, and after a short pause it is recognized in Danish
  * and English. The best guess in the active language is committed with a space.
@@ -127,6 +129,22 @@ class PenIME : InputMethodService(), InkView.Listener {
             setBackgroundColor(Color.WHITE)
         }
 
+        // Keys on top, under a black rule: a hard edge between the app and the
+        // keyboard. Then the guesses, right above the boxed writing area.
+        root.addView(View(this).apply { setBackgroundColor(Color.BLACK) },
+            LinearLayout.LayoutParams(MATCH_PARENT, (2 * dp).toInt()))
+
+        val keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        langKey = key(activeLang.uppercase()) { toggleLanguage() }
+        keys.addView(langKey, weight(1f))
+        keys.addView(key("⌨") { switchKeyboard() }, weight(1f))
+        keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(2.5f))
+        keys.addView(deleteKey(), weight(2.5f))
+        enterKey = key("⏎") { flushThen { enter() } }
+        enterKey.setOnLongClickListener { flushThen { commit("\n", remember = false) }; true }
+        keys.addView(enterKey, weight(1.5f))
+        root.addView(keys, LinearLayout.LayoutParams(MATCH_PARENT, (52 * dp).toInt()))
+
         candidateRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         root.addView(HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -134,18 +152,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         }, LinearLayout.LayoutParams(MATCH_PARENT, (44 * dp).toInt()))
 
         ink = InkView(this, this)
-        root.addView(ink, LinearLayout.LayoutParams(MATCH_PARENT, (200 * dp).toInt()))
-
-        val keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        langKey = key(activeLang.uppercase()) { toggleLanguage() }
-        keys.addView(langKey, weight(1f))
-        keys.addView(key("⌨") { switchKeyboard() }, weight(1f))
-        keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(3f))
-        keys.addView(key("⌫") { backspace() }, weight(1.5f))
-        enterKey = key("⏎") { flushThen { enter() } }
-        enterKey.setOnLongClickListener { flushThen { commit("\n", remember = false) }; true }
-        keys.addView(enterKey, weight(1.5f))
-        root.addView(keys, LinearLayout.LayoutParams(MATCH_PARENT, (52 * dp).toInt()))
+        root.addView(ink, LinearLayout.LayoutParams(MATCH_PARENT, (280 * dp).toInt()))
 
         return root
     }
@@ -162,6 +169,7 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onFinishInputView(finishingInput: Boolean) {
         main.removeCallbacks(commitRunnable)
+        main.removeCallbacks(repeatDelete)
         heldLayer = null
         ink.stopPen()
         ink.clear()
@@ -382,6 +390,50 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (ink.strokes.isNotEmpty()) { ink.clear(); return }
         lastCommitted = null
         sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+    }
+
+    /**
+     * Held delete: after a pause it repeats slowly, then switches to whole words.
+     * E-ink shows each change late, so a fast character repeat would overshoot
+     * before you see it; a few word steps are easy to stop in time.
+     */
+    private var deleteHeldAt = 0L
+    private val repeatDelete: Runnable = object : Runnable {
+        override fun run() {
+            val held = SystemClock.uptimeMillis() - deleteHeldAt
+            if (held < 1800) {
+                lastCommitted = null
+                sendDownUpKeyEvents(KeyEvent.KEYCODE_DEL)
+                main.postDelayed(this, 180)
+            } else {
+                deleteLastWord()
+                main.postDelayed(this, 450)
+            }
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun deleteKey() = key("⌫") {}.apply {
+        textSize = 28f
+        setOnClickListener(null)
+        setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.isPressed = true
+                    val hadInk = ink.strokes.isNotEmpty()
+                    backspace()
+                    if (!hadInk) {
+                        deleteHeldAt = SystemClock.uptimeMillis()
+                        main.postDelayed(repeatDelete, 500)
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.isPressed = false
+                    main.removeCallbacks(repeatDelete)
+                }
+            }
+            true
+        }
     }
 
     private fun enter() {
