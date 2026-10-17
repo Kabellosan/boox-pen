@@ -46,6 +46,15 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     /** See-through: no white page or baseline, so the app underneath shows (Pen Pad). */
     var transparent = false
 
+    /**
+     * Set while the ink covers the whole screen: a finger tap anywhere on it runs
+     * this (leaves full screen). The pen still writes.
+     */
+    var onFingerTap: (() -> Unit)? = null
+    private var fingerDownX = 0f
+    private var fingerDownY = 0f
+    private var fingerDownAt = 0L
+
     /** Strokes written since the last clear, in this view's pixel coordinates. */
     val strokes = ArrayList<Stroke>()
 
@@ -297,6 +306,18 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
+        val tap = onFingerTap
+        if (tap != null && e.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER) {
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { fingerDownX = e.x; fingerDownY = e.y; fingerDownAt = e.eventTime }
+                MotionEvent.ACTION_UP -> {
+                    val slop = 24 * resources.displayMetrics.density
+                    if (kotlin.math.hypot(e.x - fingerDownX, e.y - fingerDownY) < slop &&
+                        e.eventTime - fingerDownAt < 500) tap()
+                }
+            }
+            return true
+        }
         if (usingOnyx) return false
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN ->

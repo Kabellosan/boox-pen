@@ -27,6 +27,7 @@ data class Action(val code: String) {
         DELETE_WORD -> "Delete last word"
         BACK -> "Go back"
         PEN_PAD -> "Open Pen Pad"
+        FULL_SCREEN -> "Full-screen writing on/off"
         else -> app?.let { c ->
             val name = runCatching { pm.getActivityInfo(c, 0).loadLabel(pm).toString() }.getOrNull()
             "Open ${name ?: c.packageName}"
@@ -42,7 +43,8 @@ data class Action(val code: String) {
         val DELETE_WORD = Action("delete_word")
         val BACK = Action("back")
         val PEN_PAD = Action("pen_pad")
-        val BUILT_IN = listOf(NONE, SEND, LANG, QUICK_PAD, PEN_PAD, DELETE_WORD, BACK)
+        val FULL_SCREEN = Action("full_screen")
+        val BUILT_IN = listOf(NONE, SEND, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, DELETE_WORD, BACK)
         fun openApp(c: ComponentName) = Action(APP + c.flattenToString())
 
         fun launchIntent(c: ComponentName): Intent = Intent(Intent.ACTION_MAIN)

@@ -181,6 +181,7 @@ class PenButtonProbe : AccessibilityService() {
             }
             Action.QUICK_PAD -> launch(Intent(this, LauncherActivity::class.java))
             Action.PEN_PAD -> launch(Intent(this, PenPadActivity::class.java))
+            Action.FULL_SCREEN -> if (PenIME.shown) PenIME.toggleFullScreen()
             Action.SEND -> pressEnter()
             Action.LANG -> Shortcuts.setLanguage(this, if (Shortcuts.language(this) == "da") "en" else "da")
             Action.DELETE_WORD -> {
