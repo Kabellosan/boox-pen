@@ -9,6 +9,8 @@
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- Some Android skins hide other apps unless this is granted at runtime. -->
+    <uses-permission android:name="com.android.permission.GET_INSTALLED_APPS" />
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />

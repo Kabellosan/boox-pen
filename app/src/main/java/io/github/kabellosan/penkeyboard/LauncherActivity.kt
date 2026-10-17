@@ -1,6 +1,7 @@
 package io.github.kabellosan.penkeyboard
 
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -44,6 +45,7 @@ class LauncherActivity : Activity(), InkView.Listener {
         recognizer = Recognizer()
         recognizer.downloadAll()
         matcher = AppMatcher(this)
+        requestAppListPermission()
         shortcuts = Shortcuts(this)
 
         val dp = resources.displayMetrics.density
@@ -181,6 +183,27 @@ class LauncherActivity : Activity(), InkView.Listener {
             .show()
     }
 
+    /**
+     * Some Android skins (and, it seems, Boox) hide other apps unless the user
+     * allows "read installed apps" (com.android.permission.GET_INSTALLED_APPS).
+     * Ask for it when the system knows that permission and we don't have it yet.
+     */
+    private fun requestAppListPermission() {
+        val known = try {
+            packageManager.getPermissionInfo(GET_INSTALLED_APPS, 0); true
+        } catch (e: PackageManager.NameNotFoundException) { false }
+        if (known && checkSelfPermission(GET_INSTALLED_APPS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(GET_INSTALLED_APPS), REQUEST_APP_LIST)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_APP_LIST && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            matcher = AppMatcher(this)
+        }
+    }
+
     private fun launch(app: AppEntry) {
         startActivity(Action.launchIntent(app.component))
         finish()
@@ -202,5 +225,10 @@ class LauncherActivity : Activity(), InkView.Listener {
         setPadding(pad, 0, pad, 0)
         setBackgroundResource(android.R.drawable.list_selector_background)
         setOnClickListener { onClick() }
+    }
+
+    companion object {
+        private const val GET_INSTALLED_APPS = "com.android.permission.GET_INSTALLED_APPS"
+        private const val REQUEST_APP_LIST = 1
     }
 }
