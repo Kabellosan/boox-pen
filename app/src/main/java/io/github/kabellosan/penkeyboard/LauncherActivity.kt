@@ -172,10 +172,12 @@ class LauncherActivity : Activity(), InkView.Listener {
     private fun showKnownApps() {
         val lines = matcher.apps.sortedBy { it.label.lowercase() }
             .joinToString("\n") { "${it.label}  (${it.component.packageName})" }
+        ink.stopPen() // or the pen would draw over the dialog
         android.app.AlertDialog.Builder(this)
             .setTitle("${matcher.apps.size} apps")
             .setMessage(lines)
             .setPositiveButton("OK", null)
+            .setOnDismissListener { ink.startPen() }
             .show()
     }
 
