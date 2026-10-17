@@ -73,7 +73,9 @@ class PenIME : InputMethodService(), InkView.Listener {
     private var strokeDuringHold = false
     private var pressLayer: Layer? = null
     private var pressCount = 0
-    private val pressGapMs = 350L
+    // Boox sends each page-button press only on release (down and up 1-3 ms apart),
+    // sometimes 0.7 s after the previous one, and drops one of two very fast presses.
+    private val pressGapMs = 900L
     private val finishPress = Runnable {
         val up = pressLayer == Layer.PAGE_UP
         val press = when {
@@ -83,10 +85,14 @@ class PenIME : InputMethodService(), InkView.Listener {
         pressLayer = null
         pressCount = 0
         // A key press must never take the app down (the helper service shares its process).
+        val action = shortcuts.action(press)
         try {
-            perform(shortcuts.action(press))
+            perform(action)
+            val helper = if (PenButtonProbe.instance != null) "helper on" else "helper off"
+            PenButtonProbe.record(this, "Keyboard: ${press.label} → ${action.label(packageManager)} ($helper)")
         } catch (e: Exception) {
             Log.w(PenApp.TAG, "Page button action failed: ${e.message}")
+            PenButtonProbe.record(this, "Keyboard: ${press.label} → ${action.label(packageManager)} failed: ${e.message}")
         }
     }
 
@@ -205,8 +211,14 @@ class PenIME : InputMethodService(), InkView.Listener {
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val layer = pageButton(keyCode) ?: return super.onKeyDown(keyCode, event)
         if (event.repeatCount > 0) return true
+        PenButtonProbe.record(this, "Keyboard got ${KeyEvent.keyCodeToString(keyCode)}" +
+            if (isInputViewShown) " (keyboard open)" else " (keyboard hidden)")
         keyDownAt = SystemClock.uptimeMillis()
         strokeDuringHold = false
+        // A press is still being counted: wait for this one's release before deciding,
+        // so the gap is measured from release to the next press, not release to release.
+        main.removeCallbacks(finishPress)
+        if (pressLayer != null && pressLayer != layer) finishPress.run()
         if (isInputViewShown) {
             flushThen {}
             heldLayer = layer
@@ -217,14 +229,17 @@ class PenIME : InputMethodService(), InkView.Listener {
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         val layer = pageButton(keyCode) ?: return super.onKeyUp(keyCode, event)
         if (heldLayer == layer) heldLayer = null
-        val quick = SystemClock.uptimeMillis() - keyDownAt < 500
+        val held = SystemClock.uptimeMillis() - keyDownAt
+        val quick = held < 500
+        PenButtonProbe.record(this, "  up after $held ms" + (if (strokeDuringHold) ", drew" else "") +
+            (if (quick && !strokeDuringHold) ", press ${pressCount + 1}" else ", not counted"))
         if (!strokeDuringHold && quick) countPress(layer)
+        else if (pressLayer != null) finishPress.run()
         return true
     }
 
     private fun countPress(layer: Layer) {
         main.removeCallbacks(finishPress)
-        if (pressLayer != null && pressLayer != layer) finishPress.run()
         pressLayer = layer
         pressCount++
         main.postDelayed(finishPress, pressGapMs)
