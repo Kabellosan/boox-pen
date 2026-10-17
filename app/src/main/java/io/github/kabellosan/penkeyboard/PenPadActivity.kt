@@ -31,15 +31,6 @@ class PenPadActivity : Activity(), InkView.Listener {
     private lateinit var candidateRow: LinearLayout
     private lateinit var langKey: TextView
 
-    // Temporary: pen diagnostics for the missing-ink bug.
-    private lateinit var diag: TextView
-    private val diagRunnable = object : Runnable {
-        override fun run() {
-            diag.text = ink.diagnostics()
-            main.postDelayed(this, 500)
-        }
-    }
-
     private var activeLang = "da"
 
     /** The text we inserted last, so a candidate tap can replace it. */
@@ -69,11 +60,6 @@ class PenPadActivity : Activity(), InkView.Listener {
             val pad = (12 * dp).toInt()
             setPadding(pad, pad / 2, pad, pad / 2)
         }
-        diag = TextView(this).apply {
-            textSize = 12f
-            setTextColor(Color.DKGRAY)
-            setBackgroundColor(Color.WHITE)
-        }
         candidateRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         ink = InkView(this, this).apply { transparent = true }
         val keys = LinearLayout(this).apply {
@@ -90,7 +76,6 @@ class PenPadActivity : Activity(), InkView.Listener {
         setContentView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             addView(status, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-            addView(diag, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(HorizontalScrollView(context).apply {
                 isHorizontalScrollBarEnabled = false
                 setBackgroundColor(Color.WHITE)
@@ -106,12 +91,10 @@ class PenPadActivity : Activity(), InkView.Listener {
         lastInserted = null
         showTarget()
         ink.doOnLayout { ink.startPen() }
-        main.post(diagRunnable)
     }
 
     override fun onPause() {
         flushThen {}
-        main.removeCallbacks(diagRunnable)
         ink.stopPen()
         super.onPause()
     }
