@@ -78,6 +78,8 @@ class PenIME : InputMethodService(), InkView.Listener {
     // Boox sends each page-button press only on release (down and up 1-3 ms apart),
     // sometimes 0.7 s after the previous one, and drops one of two very fast presses.
     private val pressGapMs = 900L
+    /** How far back from a page button's release tip taps count as done while holding it. */
+    private val pageTapWindowMs = 1500L
     private val finishPress = Runnable {
         val up = pressLayer == Layer.PAGE_UP
         val press = when {
@@ -100,6 +102,7 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         recognizer = Recognizer()
         recognizer.downloadAll()
         shortcuts = Shortcuts(this)
@@ -115,6 +118,8 @@ class PenIME : InputMethodService(), InkView.Listener {
     }
 
     override fun onDestroy() {
+        shown = false
+        instance = null
         recognizer.close()
         super.onDestroy()
     }
@@ -165,9 +170,11 @@ class PenIME : InputMethodService(), InkView.Listener {
         showCandidates(emptyMap())
         enterKey.text = if (sendsAction(info)) "Send" else "⏎"
         ink.post { ink.startPen() }
+        shown = true
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
+        shown = false
         main.removeCallbacks(commitRunnable)
         main.removeCallbacks(repeatDelete)
         heldLayer = null
@@ -241,8 +248,35 @@ class PenIME : InputMethodService(), InkView.Listener {
         val quick = held < 500
         PenButtonProbe.record(this, "  up after $held ms" + (if (strokeDuringHold) ", drew" else "") +
             (if (quick && !strokeDuringHold) ", press ${pressCount + 1}" else ", not counted"))
+        if (!strokeDuringHold && quick && pageTaps(layer, event)) return true
         if (!strokeDuringHold && quick) countPress(layer)
         else if (pressLayer != null) finishPress.run()
+        return true
+    }
+
+    /**
+     * Page button held while the tip tapped the screen two or three times (seen by
+     * the helper anywhere outside the strip). True if that was it and it ran.
+     */
+    private fun pageTaps(layer: Layer, event: KeyEvent): Boolean {
+        val taps = PenButtonProbe.instance?.takeTipTaps(event.eventTime, pageTapWindowMs) ?: return false
+        if (taps < 2) return false
+        val up = layer == Layer.PAGE_UP
+        val tap = when {
+            taps >= 3 -> if (up) PageTap.UP_TRIPLE else PageTap.DOWN_TRIPLE
+            else -> if (up) PageTap.UP_DOUBLE else PageTap.DOWN_DOUBLE
+        }
+        // These taps were the shortcut, not part of a press count.
+        main.removeCallbacks(finishPress)
+        pressLayer = null
+        pressCount = 0
+        val action = shortcuts.action(tap)
+        try {
+            perform(action)
+            PenButtonProbe.record(this, "Keyboard: ${tap.label} → ${action.label(packageManager)}")
+        } catch (e: Exception) {
+            PenButtonProbe.record(this, "Keyboard: ${tap.label} → ${action.label(packageManager)} failed: ${e.message}")
+        }
         return true
     }
 
@@ -264,7 +298,40 @@ class PenIME : InputMethodService(), InkView.Listener {
      * Button held down. Over waiting ink a sweep rubs out what it touches; taps,
      * presses, and anything drawn on an empty strip are shortcuts.
      */
+    /**
+     * Button held: tap, then press again and slide sideways to move the cursor,
+     * one character per [slideStepPx], to fix a typo without leaving the strip.
+     */
+    private var sliding = false
+    private var slideX = 0f
+    private val slideStepPx get() = 12 * resources.displayMetrics.density
+
+    override fun onEraseStart() {
+        if (!buttonGestures.takeTap()) return
+        sliding = true
+        slideX = Float.NaN
+        main.removeCallbacks(commitRunnable)
+        if (ink.strokes.isNotEmpty()) recognizeAndCommit()
+    }
+
+    override fun onEraseMove(path: Stroke) {
+        if (!sliding || path.size == 0) return
+        if (slideX.isNaN()) slideX = path.xs[0]
+        val steps = ((path.xs[path.size - 1] - slideX) / slideStepPx).toInt()
+        if (steps == 0) return
+        slideX += steps * slideStepPx
+        lastCommitted = null
+        val key = if (steps > 0) KeyEvent.KEYCODE_DPAD_RIGHT else KeyEvent.KEYCODE_DPAD_LEFT
+        repeat(kotlin.math.abs(steps)) { sendDownUpKeyEvents(key) }
+    }
+
     override fun onErase(path: Stroke, durationMs: Long) {
+        if (sliding) {
+            // Firmware that sends no live moves gets the whole slide at the end.
+            onEraseMove(path)
+            sliding = false
+            return
+        }
         if (ink.strokes.isNotEmpty() && !buttonGestures.pending && !buttonGestures.isStill(path)) {
             erase(path)
             return
@@ -532,4 +599,14 @@ class PenIME : InputMethodService(), InkView.Listener {
     private fun weight(w: Float) = LinearLayout.LayoutParams(0, MATCH_PARENT, w)
 
     private fun Char.isPunct() = this in ".,!?;:)"
+
+    companion object {
+        /** True while the writing strip is on screen; eraser taps on it are its own. */
+        var shown = false
+            private set
+
+        /** The running keyboard, so the helper can close it before pressing Back. */
+        var instance: PenIME? = null
+            private set
+    }
 }

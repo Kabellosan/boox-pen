@@ -37,6 +37,10 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         fun onStrokeEnd()
         /** The pen's eraser (end or side button) touched along [path] for [durationMs]. */
         fun onErase(path: Stroke, durationMs: Long)
+        /** The eraser touched down; [onEraseMove] follows with the path so far. */
+        fun onEraseStart() {}
+        /** The eraser moved; [path] holds every point since it touched down. */
+        fun onEraseMove(path: Stroke) {}
     }
 
     /** See-through: no white page or baseline, so the app underneath shows (Pen Pad). */
@@ -90,7 +94,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         }
 
         override fun onRawDrawingTouchPointMoveReceived(p: TouchPoint) {
-            main.post { eraserPath?.add(p.x, p.y, p.timestamp) ?: current?.add(p.x, p.y, p.timestamp) }
+            main.post { if (eraserPath != null) moveErase(p.x, p.y, p.timestamp) else current?.add(p.x, p.y, p.timestamp) }
         }
 
         override fun onRawDrawingTouchPointListReceived(list: TouchPointList) {
@@ -115,7 +119,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         }
 
         override fun onRawErasingTouchPointMoveReceived(p: TouchPoint) {
-            main.post { eraserPath?.add(p.x, p.y, p.timestamp) }
+            main.post { moveErase(p.x, p.y, p.timestamp) }
         }
 
         override fun onRawErasingTouchPointListReceived(list: TouchPointList) {
@@ -273,6 +277,13 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         current = null
         eraserPath = Stroke().also { it.add(x, y, t) }
         eraseStartedAt = SystemClock.uptimeMillis()
+        listener.onEraseStart()
+    }
+
+    private fun moveErase(x: Float, y: Float, t: Long) {
+        val path = eraserPath ?: return
+        path.add(x, y, t)
+        listener.onEraseMove(path)
     }
 
     private fun endErase(x: Float, y: Float, t: Long) {
@@ -290,7 +301,8 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN ->
                 if (isEraser(e)) beginErase(e.x, e.y, e.eventTime) else beginStroke(e.x, e.y, e.eventTime)
-            MotionEvent.ACTION_MOVE -> eraserPath?.add(e.x, e.y, e.eventTime) ?: current?.add(e.x, e.y, e.eventTime)
+            MotionEvent.ACTION_MOVE ->
+                if (eraserPath != null) moveErase(e.x, e.y, e.eventTime) else current?.add(e.x, e.y, e.eventTime)
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
                 if (eraserPath != null) endErase(e.x, e.y, e.eventTime) else endStroke(e.x, e.y, e.eventTime)
         }

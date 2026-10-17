@@ -54,7 +54,7 @@ data class Action(val code: String) {
 
 /** The fixed things the pen's button can do, each with an assignable action. */
 enum class Trigger(val key: String, val label: String, val default: Action) {
-    DOUBLE_TAP("double_tap", "Tap twice", Action.SEND),
+    DOUBLE_TAP("double_tap", "Tap twice", Action.NONE),
     TRIPLE_TAP("triple_tap", "Tap three times", Action.LANG),
     LONG_PRESS("long_press", "Press and hold", Action.QUICK_PAD),
     SWIPE("swipe", "Swipe sideways", Action.DELETE_WORD),
@@ -77,6 +77,27 @@ enum class ButtonPress(val key: String, val label: String, val default: Action) 
     UP_DOUBLE("up_double", "Page Up double press", Action.PEN_PAD),
     DOWN_PRESS("down_press", "Page Down press", Action.NONE),
     DOWN_DOUBLE("down_double", "Page Down double press", Action.BACK),
+}
+
+/**
+ * Holding a page button and tapping the screen with the pen tip, anywhere outside
+ * the keyboard's strip. Seen when the button is let go (that's when Boox sends it).
+ */
+enum class PageTap(val key: String, val label: String, val default: Action) {
+    UP_DOUBLE("up_tap2", "Hold page Up, tap twice", Action.QUICK_PAD),
+    UP_TRIPLE("up_tap3", "Hold page Up, tap three times", Action.NONE),
+    DOWN_DOUBLE("down_tap2", "Hold page Down, tap twice", Action.PEN_PAD),
+    DOWN_TRIPLE("down_tap3", "Hold page Down, tap three times", Action.NONE),
+}
+
+/**
+ * Eraser taps (the pen's button held) on any screen, outside the keyboard's strip.
+ * The helper only learns that the eraser touched down somewhere, not where or for
+ * how long, so taps are all it can tell apart. The app underneath gets the taps too.
+ */
+enum class AnywhereTap(val key: String, val label: String, val default: Action) {
+    DOUBLE("anywhere_double", "Tap twice", Action.BACK),
+    TRIPLE("anywhere_triple", "Tap three times", Action.QUICK_PAD),
 }
 
 /** A shape the user recorded, drawn one or more times, and what it does. */
@@ -135,6 +156,14 @@ class Shortcuts(context: Context) {
     fun action(b: ButtonPress): Action = prefs.getString(b.key, null)?.let(::Action) ?: b.default
 
     fun setAction(b: ButtonPress, a: Action) = prefs.edit().putString(b.key, a.code).apply()
+
+    fun action(t: PageTap): Action = prefs.getString(t.key, null)?.let(::Action) ?: t.default
+
+    fun setAction(t: PageTap, a: Action) = prefs.edit().putString(t.key, a.code).apply()
+
+    fun action(t: AnywhereTap): Action = prefs.getString(t.key, null)?.let(::Action) ?: t.default
+
+    fun setAction(t: AnywhereTap, a: Action) = prefs.edit().putString(t.key, a.code).apply()
 
     fun match(strokes: List<Stroke>, pm: PackageManager, layer: Layer = Layer.PEN): ShapeMatch? {
         matchGesture(strokes)?.let { (g, score) -> return ShapeMatch(g.action.label(pm), g.action, score) }

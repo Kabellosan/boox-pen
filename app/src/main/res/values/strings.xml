@@ -3,6 +3,6 @@
     <string name="ime_name">Pen Keyboard</string>
     <string name="launcher_name">Pad Launch</string>
     <string name="probe_name">Pen Keyboard helper</string>
-    <string name="probe_description">Lets Pen Pad write your handwriting into the text field you were using in any app, lets pen shortcuts press Back, and records which hardware keys (like the pen button) reach the system. It only reads or changes the text field you write into, keeps nothing, and passes every key on.</string>
+    <string name="probe_description">Lets Pen Pad write your handwriting into the text field you were using in any app, lets pen shortcuts press Back, notices pen-button taps on any screen (only that a tap happened, never where), and records which hardware keys (like the pen button) reach the system. It only reads or changes the text field you write into, keeps nothing, and passes every key on.</string>
     <string name="pad_name">Pen Pad</string>
 </resources>
