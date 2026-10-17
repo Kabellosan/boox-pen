@@ -23,7 +23,7 @@ import java.util.Locale
  * Pen Keyboard helper, an accessibility service (off until switched on):
  * - lets Pen Pad write into the text field you were using in another app;
  * - lets the Go back shortcut press Android's real Back button;
- * - turns eraser taps on any screen into shortcuts while the keyboard is hidden;
+ * - turns eraser taps on any screen (outside the keyboard's strip) into shortcuts;
  * - probes whether the pen's side button sends anything the whole system can see.
  *
  * Text fields: it remembers the last editable field that got focus in another
@@ -125,8 +125,11 @@ class PenButtonProbe : AccessibilityService() {
             if (seenTools.add(tool)) record(this, "Anywhere: ${toolName(tool)} seen (watching works)")
             return
         }
+        // Android hides where a touch landed only when it landed in another app. So a
+        // position means the keyboard's own strip, whose taps are its shortcuts.
+        val onKeyboard = PenIME.shown && (e.x != 0f || e.y != 0f)
         val skip = when {
-            PenIME.shown -> "keyboard open"
+            onKeyboard -> "the keyboard"
             else -> rootInActiveWindow?.packageName?.toString()?.takeIf { it == packageName || it in PEN_APPS }
         }
         if (skip != null) {
@@ -151,7 +154,13 @@ class PenButtonProbe : AccessibilityService() {
     private fun perform(action: Action) {
         when (action) {
             Action.NONE -> {}
-            Action.BACK -> performGlobalAction(GLOBAL_ACTION_BACK)
+            // With the keyboard open, Back would only close it: close it first, then go back.
+            Action.BACK -> if (PenIME.shown) {
+                PenIME.instance?.requestHideSelf(0)
+                main.postDelayed({ performGlobalAction(GLOBAL_ACTION_BACK) }, 150)
+            } else {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+            }
             Action.QUICK_PAD -> launch(Intent(this, LauncherActivity::class.java))
             Action.PEN_PAD -> launch(Intent(this, PenPadActivity::class.java))
             Action.SEND -> pressEnter()

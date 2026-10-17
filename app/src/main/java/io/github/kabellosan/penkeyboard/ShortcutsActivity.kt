@@ -69,7 +69,7 @@ class ShortcutsActivity : Activity() {
                 pickAction(this, shortcuts.action(t)) { a -> shortcuts.setAction(t, a); refresh() }
             })
         }
-        list.addView(text("Works on any screen while the keyboard is hidden, with Pen Keyboard helper on. " +
+        list.addView(text("Works on any screen, with Pen Keyboard helper on. On the keyboard's strip, its own button shortcuts apply instead. " +
             "The app underneath feels the taps too, so tap somewhere empty, like the status bar.", 16f))
 
         list.addView(text("\nYour gestures", 22f))

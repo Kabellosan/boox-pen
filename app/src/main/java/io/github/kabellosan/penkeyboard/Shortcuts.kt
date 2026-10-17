@@ -80,7 +80,7 @@ enum class ButtonPress(val key: String, val label: String, val default: Action) 
 }
 
 /**
- * Eraser taps (the pen's button held) on any screen while the keyboard is hidden.
+ * Eraser taps (the pen's button held) on any screen, outside the keyboard's strip.
  * The helper only learns that the eraser touched down somewhere, not where or for
  * how long, so taps are all it can tell apart. The app underneath gets the taps too.
  */

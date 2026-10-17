@@ -98,6 +98,7 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         recognizer = Recognizer()
         recognizer.downloadAll()
         shortcuts = Shortcuts(this)
@@ -114,6 +115,7 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onDestroy() {
         shown = false
+        instance = null
         recognizer.close()
         super.onDestroy()
     }
@@ -485,8 +487,12 @@ class PenIME : InputMethodService(), InkView.Listener {
     private fun Char.isPunct() = this in ".,!?;:)"
 
     companion object {
-        /** True while the writing strip is on screen; its eraser taps are its own then. */
+        /** True while the writing strip is on screen; eraser taps on it are its own. */
         var shown = false
+            private set
+
+        /** The running keyboard, so the helper can close it before pressing Back. */
+        var instance: PenIME? = null
             private set
     }
 }
