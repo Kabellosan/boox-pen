@@ -21,7 +21,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Bare-bones pen keyboard: a writing strip, a row of candidates, a row of keys.
+ * Bare-bones pen keyboard: a row of keys, a row of candidates, a boxed writing strip.
  *
  * Write a word, lift the pen, and after a short pause it is recognized in Danish
  * and English. The best guess in the active language is committed with a space.
@@ -127,14 +127,10 @@ class PenIME : InputMethodService(), InkView.Listener {
             setBackgroundColor(Color.WHITE)
         }
 
-        candidateRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        root.addView(HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(candidateRow)
-        }, LinearLayout.LayoutParams(MATCH_PARENT, (44 * dp).toInt()))
-
-        ink = InkView(this, this)
-        root.addView(ink, LinearLayout.LayoutParams(MATCH_PARENT, (200 * dp).toInt()))
+        // Keys on top, under a black rule: a hard edge between the app and the
+        // keyboard. Then the guesses, right above the boxed writing area.
+        root.addView(View(this).apply { setBackgroundColor(Color.BLACK) },
+            LinearLayout.LayoutParams(MATCH_PARENT, (2 * dp).toInt()))
 
         val keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         langKey = key(activeLang.uppercase()) { toggleLanguage() }
@@ -146,6 +142,15 @@ class PenIME : InputMethodService(), InkView.Listener {
         enterKey.setOnLongClickListener { flushThen { commit("\n", remember = false) }; true }
         keys.addView(enterKey, weight(1.5f))
         root.addView(keys, LinearLayout.LayoutParams(MATCH_PARENT, (52 * dp).toInt()))
+
+        candidateRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        root.addView(HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(candidateRow)
+        }, LinearLayout.LayoutParams(MATCH_PARENT, (44 * dp).toInt()))
+
+        ink = InkView(this, this)
+        root.addView(ink, LinearLayout.LayoutParams(MATCH_PARENT, (200 * dp).toInt()))
 
         return root
     }
