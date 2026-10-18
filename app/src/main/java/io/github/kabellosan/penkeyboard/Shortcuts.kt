@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import org.json.JSONArray
 import org.json.JSONObject
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
@@ -28,6 +29,7 @@ data class Action(val code: String) {
         BACK -> "Go back"
         PEN_PAD -> "Open Pen Pad"
         FULL_SCREEN -> "Full-screen writing on/off"
+        NEW_LINE -> "New line"
         else -> app?.let { c ->
             val name = runCatching { pm.getActivityInfo(c, 0).loadLabel(pm).toString() }.getOrNull()
             "Open ${name ?: c.packageName}"
@@ -44,7 +46,8 @@ data class Action(val code: String) {
         val BACK = Action("back")
         val PEN_PAD = Action("pen_pad")
         val FULL_SCREEN = Action("full_screen")
-        val BUILT_IN = listOf(NONE, SEND, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, DELETE_WORD, BACK)
+        val NEW_LINE = Action("new_line")
+        val BUILT_IN = listOf(NONE, SEND, NEW_LINE, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, DELETE_WORD, BACK)
         fun openApp(c: ComponentName) = Action(APP + c.flattenToString())
 
         fun launchIntent(c: ComponentName): Intent = Intent(Intent.ACTION_MAIN)
@@ -60,6 +63,8 @@ enum class Trigger(val key: String, val label: String, val default: Action) {
     TRIPLE_TAP("triple_tap", "Tap three times", Action.LANG),
     LONG_PRESS("long_press", "Press and hold", Action.QUICK_PAD),
     SWIPE("swipe", "Swipe sideways", Action.DELETE_WORD),
+    LINE_DOWN("line_down", "Draw a line down", Action.NEW_LINE),
+    LINE_UP("line_up", "Draw a line up", Action.SEND),
 }
 
 /**
@@ -170,6 +175,7 @@ class Shortcuts(context: Context) {
     fun match(strokes: List<Stroke>, pm: PackageManager, layer: Layer = Layer.PEN): ShapeMatch? {
         matchGesture(strokes)?.let { (g, score) -> return ShapeMatch(g.action.label(pm), g.action, score) }
         if (isSwipe(strokes)) return ShapeMatch(Trigger.SWIPE.label, action(Trigger.SWIPE, layer), null)
+        line(strokes)?.let { return ShapeMatch(it.label, action(it, layer), null) }
         return null
     }
 
@@ -191,6 +197,22 @@ class Shortcuts(context: Context) {
                 .minOfOrNull { PointCloud.distance(cloud, it) }
                 ?.let { g to it }
         }.sortedBy { it.second }
+    }
+
+    /**
+     * One long straight stroke, up or down: [Trigger.LINE_DOWN] or [Trigger.LINE_UP].
+     * Drawn with the button held, so over waiting ink it wins over rubbing out.
+     */
+    fun line(strokes: List<Stroke>): Trigger? {
+        val s = strokes.singleOrNull() ?: return null
+        if (s.size < 2) return null
+        val dx = s.xs[s.size - 1] - s.xs[0]
+        val dy = s.ys[s.size - 1] - s.ys[0]
+        if (abs(dy) < 80 * density || abs(dx) > 0.35f * abs(dy)) return null
+        var length = 0f
+        for (i in 1 until s.size) length += hypot(s.xs[i] - s.xs[i - 1], s.ys[i] - s.ys[i - 1])
+        if (length > 1.25f * hypot(dx, dy)) return null
+        return if (dy > 0) Trigger.LINE_DOWN else Trigger.LINE_UP
     }
 
     /** One long, flat stroke: a sweep to the side. */

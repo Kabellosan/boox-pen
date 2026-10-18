@@ -262,7 +262,6 @@ class PenIME : InputMethodService(), InkView.Listener {
         main.removeCallbacks(commitRunnable)
         val layer = strokeLayer
         if (layer == null) {
-            if (fullScreen && lineGesture()) return
             main.postDelayed(commitRunnable, commitDelayMs)
             return
         }
@@ -272,35 +271,6 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (layer != pageLayer) pageGestures.flush()
         pageLayer = layer
         pageGestures.feed(stroke, SystemClock.uptimeMillis() - strokeStartedAt)
-    }
-
-    /**
-     * In full screen, one long straight line is a key, not writing: down is a new
-     * line, up is Send. Waiting ink is typed first. True if the last stroke was one.
-     */
-    private fun lineGesture(): Boolean {
-        val s = ink.strokes.lastOrNull() ?: return false
-        val down = lineDirection(s) ?: return false
-        ink.strokes.removeAt(ink.strokes.size - 1)
-        if (ink.strokes.isEmpty()) ink.repaint()
-        flushThen { if (down) newLine() else enter() }
-        return true
-    }
-
-    /**
-     * True for a long straight line down, false for one up, null for anything else.
-     * Long means taller than any letter: about 2.5 cm on the Go 7.
-     */
-    private fun lineDirection(s: Stroke): Boolean? {
-        if (s.size < 2) return null
-        val dx = s.xs[s.size - 1] - s.xs[0]
-        val dy = s.ys[s.size - 1] - s.ys[0]
-        if (kotlin.math.abs(dy) < 160 * resources.displayMetrics.density) return null
-        if (kotlin.math.abs(dx) > 0.35f * kotlin.math.abs(dy)) return null
-        var length = 0f
-        for (i in 1 until s.size) length += kotlin.math.hypot(s.xs[i] - s.xs[i - 1], s.ys[i] - s.ys[i - 1])
-        if (length > 1.25f * kotlin.math.hypot(dx, dy)) return null
-        return dy > 0
     }
 
     /** A line break, without the space we put after the last word. */
@@ -432,6 +402,12 @@ class PenIME : InputMethodService(), InkView.Listener {
             sliding = false
             return
         }
+        // A straight line up or down (Send, new line), even over waiting ink.
+        val line = if (buttonGestures.pending) null else shortcuts.line(listOf(path))
+        if (line != null) {
+            perform(shortcuts.action(line))
+            return
+        }
         if (ink.strokes.isNotEmpty() && !buttonGestures.pending && !buttonGestures.isStill(path)) {
             erase(path)
             return
@@ -466,6 +442,7 @@ class PenIME : InputMethodService(), InkView.Listener {
             Action.SEND -> flushThen { enter() }
             Action.LANG -> toggleLanguage()
             Action.FULL_SCREEN -> setFullScreen(!fullScreen)
+            Action.NEW_LINE -> flushThen { newLine() }
             Action.QUICK_PAD -> openLauncher()
             Action.BACK -> flushThen { goBack() }
             Action.PEN_PAD -> flushThen {
