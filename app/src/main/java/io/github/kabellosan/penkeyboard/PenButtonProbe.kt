@@ -25,7 +25,7 @@ import java.util.Locale
  * - lets Pen Pad write into the text field you were using in another app;
  * - lets the Go back shortcut press Android's real Back button;
  * - turns eraser taps on any screen (outside the keyboard's strip) into shortcuts;
- * - unfreezes an app Boox froze when Pad Launch opens it, with its toggle in Boox's Freeze Settings;
+ * - unfreezes an app Boox froze when Pad Launch opens it, by tapping it in Boox's Apps screen;
  * - probes whether the pen's side button sends anything the whole system can see.
  *
  * Text fields: it remembers the last editable field that got focus in another
@@ -201,7 +201,7 @@ class PenButtonProbe : AccessibilityService() {
 
     private val unfreezer by lazy { Unfreezer(this) }
 
-    /** Unfreezes [app] in Boox's Freeze Settings, then opens it. */
+    /** Taps [app] in Boox's Apps screen, which unfreezes and opens it. */
     fun unfreezeAndOpen(app: ComponentName, label: String = FrozenApps.label(packageManager, app.packageName)) =
         unfreezer.start(app, label)
 

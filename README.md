@@ -87,10 +87,10 @@ To open it with a hardware button: Boox Settings → button settings → map a b
 to open the **Pad Launch** app.
 
 Apps Boox has frozen are found too. Opening one unfreezes it first: with
-**Pen Keyboard helper** on, the helper switches the app's toggle off in Boox's
-Freeze Settings and then opens the app (it stays unfrozen); without it, Freeze
-Settings opens for you to do it. Only system apps (like Boox's own launcher) can
-unfreeze silently, and Android's App info has no Enable button for apps you installed.
+**Pen Keyboard helper** on, the helper goes to Boox's Apps screen and taps the
+app there, which is how Boox itself unfreezes and opens an app (only a system
+app like Boox's launcher may switch an app back on). Without the helper, Pad
+Launch tells you to tap it there yourself.
 
 ## Code
 
@@ -102,7 +102,7 @@ unfreeze silently, and Android's App info has no Enable button for apps you inst
 - `PenApp.kt`: hidden-API exemptions the Onyx SDK needs (hence `targetSdk 29`).
 - `SetupActivity.kt`: the setup screen.
 - `LauncherActivity.kt`, `AppMatcher.kt`: Pad Launch (handwriting → open app).
-  `FrozenApps.kt`, `Unfreezer.kt`: spotting apps Boox froze, and unfreezing them via Freeze Settings.
+  `FrozenApps.kt`, `Unfreezer.kt`: spotting apps Boox froze, and unfreezing them via Boox's Apps screen.
 - `ButtonGestures.kt`: groups button-held contacts into taps, a press, or a drawn shape.
 - `Shortcuts.kt`: shortcut settings, actions, and the $P shape matcher.
 - `ShortcutsActivity.kt`, `RecordGestureActivity.kt`: the Pen shortcuts screens.
