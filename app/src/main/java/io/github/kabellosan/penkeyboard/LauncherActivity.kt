@@ -11,6 +11,7 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.doOnLayout
 
 /**
@@ -107,8 +108,8 @@ class LauncherActivity : Activity(), InkView.Listener {
         val strokes = ink.strokes.toList()
         if (strokes.isEmpty()) return
         shortcuts.matchGesture(strokes)?.first?.action?.app?.let { app ->
-            startActivity(Action.launchIntent(app))
-            finish()
+            launch(matcher.apps.firstOrNull { it.component.packageName == app.packageName }
+                ?: AppEntry(app.packageName, app))
             return
         }
         val w = ink.width.toFloat()
@@ -173,13 +174,38 @@ class LauncherActivity : Activity(), InkView.Listener {
     }
 
     private fun launch(app: AppEntry) {
+        // Checked again here: the list was made when Pad Launch opened.
+        if (FrozenApps.isFrozen(packageManager, app.component.packageName)) {
+            unfreeze(app)
+            return
+        }
         try {
             startActivity(Action.launchIntent(app.component))
             finish()
         } catch (e: Exception) {
-            // Typically a frozen app: Android won't start a disabled one.
             choices.removeAllViews()
-            status.text = "Couldn't open ${app.label}" + if (app.frozen) ": it's frozen in Boox, unfreeze it there" else ""
+            status.text = "Couldn't open ${app.label}"
+        }
+    }
+
+    /**
+     * Boox froze [app]. The helper can press Enable on its App info page and
+     * then open it; without the helper, the page opens for you to tap Enable.
+     */
+    private fun unfreeze(app: AppEntry) {
+        val helper = PenButtonProbe.instance
+        if (helper != null) {
+            helper.unfreezeAndOpen(app.component)
+            finish()
+            return
+        }
+        try {
+            startActivity(FrozenApps.appInfoIntent(app.component.packageName))
+            Toast.makeText(this, "${app.label} is frozen: tap Enable, then write it again", Toast.LENGTH_LONG).show()
+            finish()
+        } catch (e: Exception) {
+            choices.removeAllViews()
+            status.text = "Couldn't open ${app.label}: it's frozen in Boox, unfreeze it there"
         }
     }
 
