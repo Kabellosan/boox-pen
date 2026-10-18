@@ -161,6 +161,8 @@ class PenButtonProbe : AccessibilityService() {
     fun takeTipTaps(time: Long, windowMs: Long): Int {
         val n = tipDowns.count { it in (time - windowMs)..time }
         if (n > 0) tipDowns.clear()
+        // In Boox Notes the tip was writing, and a page press right after turns the page.
+        if (n > 0 && rootInActiveWindow?.packageName?.toString() in PEN_APPS) return 0
         return n
     }
 

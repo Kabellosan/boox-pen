@@ -80,13 +80,14 @@ class PenIME : InputMethodService(), InkView.Listener {
     /** How far back from a page button's release tip taps count as done while holding it. */
     private val pageTapWindowMs = 1500L
     private val finishPress = Runnable {
-        val up = pressButton == PageButton.UP
-        val press = when {
-            pressCount >= 2 -> if (up) ButtonPress.UP_DOUBLE else ButtonPress.DOWN_DOUBLE
-            else -> if (up) ButtonPress.UP_PRESS else ButtonPress.DOWN_PRESS
-        }
+        val button = pressButton ?: return@Runnable
+        val double = pressCount >= 2
         pressButton = null
         pressCount = 0
+        runPress(press(button, double))
+    }
+
+    private fun runPress(press: ButtonPress) {
         // A key press must never take the app down (the helper service shares its process).
         val action = shortcuts.action(press)
         try {
@@ -250,29 +251,68 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     /**
      * Page buttons, when a shortcut uses them (else they do what Boox set them to).
-     * Every press is then swallowed so the volume doesn't change, and
-     * counts toward a press or double press. Boox sends a press only when the
-     * button is let go, so how long it was held can't be told.
+     * Boox sends a press only when the button is let go, down and up together, so
+     * each press is decided at its down and its up goes the same way:
+     * - after two or three tip taps it is a [PageTap];
+     * - if a plain press has an action, every press is swallowed and counted
+     *   toward a press or double press (the volume doesn't change);
+     * - else the press goes on to the app, so a reading app still turns the page,
+     *   and only a second press right after it is swallowed for the double press.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val button = pageButton(keyCode)?.takeIf(shortcuts::usesPageButton) ?: return super.onKeyDown(keyCode, event)
-        if (event.repeatCount > 0) return true
+        if (event.repeatCount > 0) return if (keyCode == takenKey) true else super.onKeyDown(keyCode, event)
         PenButtonProbe.record(this, "Keyboard got ${KeyEvent.keyCodeToString(keyCode)}" +
             if (isInputViewShown) " (keyboard open)" else " (keyboard hidden)")
-        // A press is still being counted: wait for this one's release before deciding,
-        // so the gap is measured from release to the next press, not release to release.
         main.removeCallbacks(finishPress)
+        // The other button's presses are done being counted.
         if (pressButton != null && pressButton != button) finishPress.run()
+        countOnUp = false
+        when {
+            pageTaps(button, event) -> {}
+            shortcuts.action(press(button, double = false)) != Action.NONE -> countOnUp = true
+            pressButton == button -> countOnUp = true
+            button == passedButton && event.eventTime - passedAt <= pressGapMs &&
+                shortcuts.action(press(button, double = true)) != Action.NONE -> {
+                passedButton = null
+                runPress(press(button, double = true))
+            }
+            else -> {
+                passedButton = button
+                passedAt = event.eventTime
+                takenKey = 0
+                PenButtonProbe.record(this, "  passed on to the app")
+                return super.onKeyDown(keyCode, event)
+            }
+        }
+        takenKey = keyCode
+        passedButton = null
         if (isInputViewShown) flushThen {}
         return true
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        val button = pageButton(keyCode)?.takeIf(shortcuts::usesPageButton) ?: return super.onKeyUp(keyCode, event)
-        PenButtonProbe.record(this, "  up, press ${pressCount + 1}")
-        if (pageTaps(button, event)) return true
-        countPress(button)
+        val button = pageButton(keyCode)
+        if (button == null || keyCode != takenKey) return super.onKeyUp(keyCode, event)
+        takenKey = 0
+        if (countOnUp) {
+            PenButtonProbe.record(this, "  up, press ${pressCount + 1}")
+            countPress(button)
+        }
         return true
+    }
+
+    /** The page key whose press we kept from the app; its up is ours too. */
+    private var takenKey = 0
+    /** That press counts toward a press or double press when it comes up. */
+    private var countOnUp = false
+    /** The last press let through to the app, and when, for the double press. */
+    private var passedButton: PageButton? = null
+    private var passedAt = 0L
+
+    private fun press(button: PageButton, double: Boolean) = when (button) {
+        PageButton.UP -> if (double) ButtonPress.UP_DOUBLE else ButtonPress.UP_PRESS
+        PageButton.DOWN -> if (double) ButtonPress.DOWN_DOUBLE else ButtonPress.DOWN_PRESS
     }
 
     /**
@@ -287,11 +327,12 @@ class PenIME : InputMethodService(), InkView.Listener {
             taps >= 3 -> if (up) PageTap.UP_TRIPLE else PageTap.DOWN_TRIPLE
             else -> if (up) PageTap.UP_DOUBLE else PageTap.DOWN_DOUBLE
         }
+        val action = shortcuts.action(tap)
+        // Nothing set for these taps: they were just taps, and this a plain press.
+        if (action == Action.NONE) return false
         // These taps were the shortcut, not part of a press count.
-        main.removeCallbacks(finishPress)
         pressButton = null
         pressCount = 0
-        val action = shortcuts.action(tap)
         try {
             perform(action)
             PenButtonProbe.record(this, "Keyboard: ${tap.label} → ${action.label(packageManager)}")

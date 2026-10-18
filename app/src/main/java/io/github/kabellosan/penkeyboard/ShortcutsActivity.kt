@@ -69,6 +69,8 @@ class ShortcutsActivity : Activity() {
             choice(t.label, shortcuts.action(t)) { shortcuts.setAction(t, it) }
         }
         list.addView(text("Hold a page button and tap with the tip outside the keyboard; it runs when you let go.", 16f))
+        list.addView(text("A single press still turns the page unless \"press\" itself has an action. " +
+            "A double press turns the page once, then runs its action.", 16f))
 
         section("Your gestures",
             "Draw one with the pen's button held in the keyboard's empty writing area, or with the tip in Pad Launch.")
