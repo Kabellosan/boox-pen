@@ -66,16 +66,8 @@ enum class Trigger(val key: String, val label: String, val default: Action) {
     LINE_UP("line_up", "Draw a line up", Action.SEND),
 }
 
-/**
- * What is held while the pen taps or draws: the pen's own button, or one of the
- * Go 7's page buttons (Boox sends them as volume keys; the keyboard reads them).
- * Each layer has its own action per [Trigger]; recorded gestures are shared.
- */
-enum class Layer(val prefix: String, val label: String) {
-    PEN("", "Hold the pen's button and…"),
-    PAGE_UP("up_", "Hold page Up and write…"),
-    PAGE_DOWN("down_", "Hold page Down and write…"),
-}
+/** The Go 7's page buttons (Boox sends them as volume keys; the keyboard reads them). */
+enum class PageButton { UP, DOWN }
 
 /** Pressing a page button on its own, without the pen. */
 enum class ButtonPress(val key: String, val label: String, val default: Action) {
@@ -121,12 +113,16 @@ class Shortcuts(context: Context) {
     private val prefs = context.getSharedPreferences("shortcuts", Context.MODE_PRIVATE)
     private val density = context.resources.displayMetrics.density
 
-    fun action(t: Trigger, layer: Layer = Layer.PEN): Action =
-        prefs.getString(layer.prefix + t.key, null)?.let(::Action)
-            ?: if (layer == Layer.PEN) t.default else Action.NONE
+    init {
+        // "Hold a page button and write" never worked (Boox sends a press only on
+        // release); drop what older builds saved for it.
+        val old = Trigger.values().flatMap { listOf("up_" + it.key, "down_" + it.key) }.filter(prefs::contains)
+        if (old.isNotEmpty()) prefs.edit().apply { old.forEach(::remove) }.apply()
+    }
 
-    fun setAction(t: Trigger, a: Action, layer: Layer = Layer.PEN) =
-        prefs.edit().putString(layer.prefix + t.key, a.code).apply()
+    fun action(t: Trigger): Action = prefs.getString(t.key, null)?.let(::Action) ?: t.default
+
+    fun setAction(t: Trigger, a: Action) = prefs.edit().putString(t.key, a.code).apply()
 
     fun gestures(): List<Gesture> {
         val json = prefs.getString(GESTURES, null) ?: return emptyList()
@@ -155,10 +151,6 @@ class Shortcuts(context: Context) {
         prefs.edit().putString(GESTURES, arr.toString()).apply()
     }
 
-    /**
-     * Matches a shape drawn with the button held: the user's gestures first,
-     * then a plain sideways swipe. Null when nothing fits.
-     */
     fun action(b: ButtonPress): Action = prefs.getString(b.key, null)?.let(::Action) ?: b.default
 
     fun setAction(b: ButtonPress, a: Action) = prefs.edit().putString(b.key, a.code).apply()
@@ -171,10 +163,14 @@ class Shortcuts(context: Context) {
 
     fun setAction(t: AnywhereTap, a: Action) = prefs.edit().putString(t.key, a.code).apply()
 
-    fun match(strokes: List<Stroke>, pm: PackageManager, layer: Layer = Layer.PEN): ShapeMatch? {
+    /**
+     * Matches a shape drawn with the button held: the user's gestures first,
+     * then a plain sideways swipe or a line up or down. Null when nothing fits.
+     */
+    fun match(strokes: List<Stroke>, pm: PackageManager): ShapeMatch? {
         matchGesture(strokes)?.let { (g, score) -> return ShapeMatch(g.action.label(pm), g.action, score) }
-        if (isSwipe(strokes)) return ShapeMatch(Trigger.SWIPE.label, action(Trigger.SWIPE, layer), null)
-        line(strokes)?.let { return ShapeMatch(it.label, action(it, layer), null) }
+        if (isSwipe(strokes)) return ShapeMatch(Trigger.SWIPE.label, action(Trigger.SWIPE), null)
+        line(strokes)?.let { return ShapeMatch(it.label, action(it), null) }
         return null
     }
 
