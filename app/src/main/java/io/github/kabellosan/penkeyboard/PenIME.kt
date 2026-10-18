@@ -251,45 +251,23 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     /**
      * Page buttons, when a shortcut uses them (else they do what Boox set them to).
-     * Boox sends a press only when the button is let go, down and up together, so
-     * each press is decided at its down and its up goes the same way:
-     * - after two or three tip taps it is a [PageTap];
-     * - if a plain press has an action, every press is swallowed and counted
-     *   toward a press or double press (the volume doesn't change);
-     * - else the press goes on to the app, so a reading app still turns the page,
-     *   and only a second press right after it is swallowed for the double press.
+     * Boox sends a press only when the button is let go, down and up together.
+     * After two or three tip taps a press is a [PageTap]; otherwise it is swallowed
+     * (so the volume doesn't change) and counted toward a press or double press.
+     * Apps that turn pages with the buttons are set to Page turning in Boox, which
+     * never sends us their presses, so they are left alone either way.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val button = pageButton(keyCode)?.takeIf(shortcuts::usesPageButton) ?: return super.onKeyDown(keyCode, event)
-        if (event.repeatCount > 0) return if (keyCode == takenKey) true else super.onKeyDown(keyCode, event)
+        if (event.repeatCount > 0) return true
         PenButtonProbe.record(this, "Keyboard got ${KeyEvent.keyCodeToString(keyCode)}" +
             if (isInputViewShown) " (keyboard open)" else " (keyboard hidden)")
+        // A press is still being counted: wait for this one's release before deciding,
+        // so the gap is measured from release to the next press, not release to release.
         main.removeCallbacks(finishPress)
-        // The other button's presses are done being counted.
         if (pressButton != null && pressButton != button) finishPress.run()
-        countOnUp = false
-        // Boox's own time on the key may not be the press's; time it as it reaches us.
-        val now = SystemClock.uptimeMillis()
-        when {
-            pageTaps(button, event) -> {}
-            shortcuts.action(press(button, double = false)) != Action.NONE -> countOnUp = true
-            pressButton == button -> countOnUp = true
-            button == passedButton && now - passedAt <= pressGapMs &&
-                shortcuts.action(press(button, double = true)) != Action.NONE -> {
-                passedButton = null
-                runPress(press(button, double = true))
-            }
-            else -> {
-                val gap = if (passedButton == button) " (${now - passedAt} ms after the last)" else ""
-                passedButton = button
-                passedAt = now
-                takenKey = 0
-                PenButtonProbe.record(this, "  passed on to the app$gap")
-                return super.onKeyDown(keyCode, event)
-            }
-        }
         takenKey = keyCode
-        passedButton = null
+        countOnUp = !pageTaps(button)
         if (isInputViewShown) flushThen {}
         return true
     }
@@ -305,13 +283,10 @@ class PenIME : InputMethodService(), InkView.Listener {
         return true
     }
 
-    /** The page key whose press we kept from the app; its up is ours too. */
+    /** The page key whose down we swallowed; its up is ours too. */
     private var takenKey = 0
     /** That press counts toward a press or double press when it comes up. */
     private var countOnUp = false
-    /** The last press let through to the app, and when, for the double press. */
-    private var passedButton: PageButton? = null
-    private var passedAt = 0L
 
     private fun press(button: PageButton, double: Boolean) = when (button) {
         PageButton.UP -> if (double) ButtonPress.UP_DOUBLE else ButtonPress.UP_PRESS
@@ -322,7 +297,7 @@ class PenIME : InputMethodService(), InkView.Listener {
      * Page button held while the tip tapped the screen two or three times (seen by
      * the helper anywhere outside the strip). True if that was it and it ran.
      */
-    private fun pageTaps(button: PageButton, event: KeyEvent): Boolean {
+    private fun pageTaps(button: PageButton): Boolean {
         val taps = PenButtonProbe.instance?.takeTipTaps(SystemClock.uptimeMillis(), pageTapWindowMs) ?: return false
         if (taps < 2) return false
         val up = button == PageButton.UP
