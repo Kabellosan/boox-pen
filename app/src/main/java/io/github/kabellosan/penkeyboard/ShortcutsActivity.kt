@@ -45,45 +45,33 @@ class ShortcutsActivity : Activity() {
     private fun refresh() {
         list.removeAllViews()
         list.addView(text("Pen shortcuts", 28f))
-        for (layer in Layer.values()) {
-            list.addView(text((if (layer == Layer.PEN) "" else "\n") + layer.label, 18f))
-            for (t in Trigger.values()) {
-                list.addView(row("${t.label}:  ${shortcuts.action(t, layer).label(packageManager)}") {
-                    pickAction(this, shortcuts.action(t, layer)) { a -> shortcuts.setAction(t, a, layer); refresh() }
-                })
-            }
-        }
-        list.addView(text("\nPage buttons on their own", 18f))
-        for (b in ButtonPress.values()) {
-            list.addView(row("${b.label}:  ${shortcuts.action(b).label(packageManager)}") {
-                pickAction(this, shortcuts.action(b)) { a -> shortcuts.setAction(b, a); refresh() }
-            })
-        }
-        list.addView(text("Page buttons work wherever Pen Keyboard is your keyboard (presses also with " +
-            "the keyboard hidden; Pen Pad and apps open only with Pen Keyboard helper on). In Boox settings set " +
-            "Customize Buttons → Volume for the apps you write in, and the smart button's long press → None.", 16f))
 
-        list.addView(text("\nHold a page button and tap anywhere with the tip…", 18f))
-        for (t in PageTap.values()) {
-            list.addView(row("${t.label}:  ${shortcuts.action(t).label(packageManager)}") {
-                pickAction(this, shortcuts.action(t)) { a -> shortcuts.setAction(t, a); refresh() }
-            })
+        section("Pen button, on the keyboard",
+            "Hold the pen's button and tap or draw in the writing area (also full screen and Pen Pad).")
+        for (t in Trigger.values()) {
+            choice(t.label, shortcuts.action(t)) { shortcuts.setAction(t, it) }
         }
-        list.addView(text("Works on any screen outside the keyboard's strip, with Pen Keyboard helper on. " +
-            "It runs when you let go of the button. The app underneath feels the taps too.", 16f))
 
-        list.addView(text("\nHold the pen's button and tap anywhere…", 18f))
+        section("Pen button, anywhere",
+            "Hold the pen's button and tap on any screen. Needs Pen Keyboard helper. The app underneath " +
+                "feels the taps too, so tap somewhere empty, like the status bar.")
         for (t in AnywhereTap.values()) {
-            list.addView(row("${t.label}:  ${shortcuts.action(t).label(packageManager)}") {
-                pickAction(this, shortcuts.action(t)) { a -> shortcuts.setAction(t, a); refresh() }
-            })
+            choice(t.label, shortcuts.action(t)) { shortcuts.setAction(t, it) }
         }
-        list.addView(text("Works on any screen, with Pen Keyboard helper on. On the keyboard's strip, its own button shortcuts apply instead. " +
-            "The app underneath feels the taps too, so tap somewhere empty, like the status bar.", 16f))
 
-        list.addView(text("\nYour gestures", 22f))
-        list.addView(text("Draw one with the button held on the keyboard's empty strip, " +
-            "with a page button held, or with the tip in Pad Launch.", 16f))
+        section("Page buttons",
+            "In Boox settings set Customize Buttons → Volume for the apps you write in, and the smart " +
+                "button's long press → None. Opening screens and apps, and the tip taps, need Pen Keyboard helper.")
+        for (b in ButtonPress.values()) {
+            choice(b.label, shortcuts.action(b)) { shortcuts.setAction(b, it) }
+        }
+        for (t in PageTap.values()) {
+            choice(t.label, shortcuts.action(t)) { shortcuts.setAction(t, it) }
+        }
+        list.addView(text("Hold a page button and tap with the tip outside the keyboard; it runs when you let go.", 16f))
+
+        section("Your gestures",
+            "Draw one with the pen's button held in the keyboard's empty writing area, or with the tip in Pad Launch.")
         val gestures = shortcuts.gestures()
         if (gestures.isEmpty()) list.addView(text("(none yet)", 18f))
         for (g in gestures) {
@@ -114,6 +102,18 @@ class ShortcutsActivity : Activity() {
                 }
             }
             .show()
+    }
+
+    private fun section(title: String, note: String) {
+        list.addView(text("\n" + title, 22f))
+        list.addView(text(note, 16f))
+    }
+
+    /** A row showing what [label] does now; tapping it picks a new action. */
+    private fun choice(label: String, current: Action, set: (Action) -> Unit) {
+        list.addView(row("$label:  ${current.label(packageManager)}") {
+            pickAction(this, current) { a -> set(a); refresh() }
+        })
     }
 
     private fun text(s: String, size: Float) = TextView(this).apply {

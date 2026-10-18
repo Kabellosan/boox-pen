@@ -59,15 +59,17 @@ app) sets what each does:
   action. Draw it with the button held on an empty strip, or with the tip in Pad Launch.
   A T for Telegram, a circle for anything you like.
 
-- Page buttons: hold the Go 7's page Up or Down button and tap or draw with the tip
-  on the keyboard. Each button has its own set of actions (tap twice, three times,
-  press, swipe; recorded gestures are shared). Boox has to send the buttons as
-  volume keys: set Customize Buttons → Volume for the apps you write in, and the
-  smart button's long press → None. Pen Keyboard swallows those keys.
-- Page buttons on their own: a press or double press of Up or Down runs an action
-  even with the keyboard hidden (defaults: Up double press opens Pen Pad, Down
-  double press goes back). Opening Pen Pad or an app from a hidden keyboard needs
-  Pen Keyboard helper switched on, since Android blocks background app starts.
+- Pen button anywhere: with the helper on, hold the button and tap twice (Go back)
+  or three times (Pad Launch) on any screen.
+- Page buttons: a press or double press of Up or Down runs an action even with the
+  keyboard hidden (defaults: Up double press opens Pen Pad, Down double press goes
+  back), and so does holding one while tapping the screen two or three times with the
+  tip. Boox has to send the buttons as volume keys: set Customize Buttons → Volume
+  for the apps you write in, and the smart button's long press → None. Pen Keyboard
+  swallows those keys. Opening Pen Pad or an app from a hidden keyboard needs Pen
+  Keyboard helper switched on, since Android blocks background app starts. (Boox
+  sends a page press only when the button is let go, so "hold a page button and
+  draw" can't work and isn't offered.)
 
 Over unrecognized ink, a button sweep still rubs out what it touches. On an empty
 strip, a shape that matches nothing does nothing (it says so in the guess row),
