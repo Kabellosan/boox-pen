@@ -268,13 +268,16 @@ class PenButtonProbe : AccessibilityService() {
     }
 
     /** Presses Home, Recents, the notifications or takes a screenshot. False if it couldn't. */
-    fun globalAction(action: Action): Boolean = performGlobalAction(when (action) {
-        Action.HOME -> GLOBAL_ACTION_HOME
-        Action.RECENTS -> GLOBAL_ACTION_RECENTS
-        Action.NOTIFICATIONS -> GLOBAL_ACTION_NOTIFICATIONS
-        Action.SCREENSHOT -> GLOBAL_ACTION_TAKE_SCREENSHOT
-        else -> return false
-    })
+    fun globalAction(action: Action): Boolean {
+        val global = when (action) {
+            Action.HOME -> GLOBAL_ACTION_HOME
+            Action.RECENTS -> GLOBAL_ACTION_RECENTS
+            Action.NOTIFICATIONS -> GLOBAL_ACTION_NOTIFICATIONS
+            Action.SCREENSHOT -> GLOBAL_ACTION_TAKE_SCREENSHOT
+            else -> return false
+        }
+        return performGlobalAction(global)
+    }
 
     /**
      * Cursor moves and the clipboard on the target field, for when the keyboard
