@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import org.json.JSONArray
 import org.json.JSONObject
-import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
@@ -200,19 +199,19 @@ class Shortcuts(context: Context) {
     }
 
     /**
-     * One long straight stroke, up or down: [Trigger.LINE_DOWN] or [Trigger.LINE_UP].
+     * One tall, narrow stroke: [Trigger.LINE_DOWN] or [Trigger.LINE_UP], by which end
+     * it started from. Generous on purpose: only its outline counts (some firmware
+     * hands over a path with points repeated), it may lean, and about 8 mm is enough.
      * Drawn with the button held, so over waiting ink it wins over rubbing out.
      */
     fun line(strokes: List<Stroke>): Trigger? {
         val s = strokes.singleOrNull() ?: return null
         if (s.size < 2) return null
-        val dx = s.xs[s.size - 1] - s.xs[0]
-        val dy = s.ys[s.size - 1] - s.ys[0]
-        if (abs(dy) < 80 * density || abs(dx) > 0.35f * abs(dy)) return null
-        var length = 0f
-        for (i in 1 until s.size) length += hypot(s.xs[i] - s.xs[i - 1], s.ys[i] - s.ys[i - 1])
-        if (length > 1.25f * hypot(dx, dy)) return null
-        return if (dy > 0) Trigger.LINE_DOWN else Trigger.LINE_UP
+        val top = s.ys.min()
+        val bottom = s.ys.max()
+        val h = bottom - top
+        if (h < 50 * density || s.xs.max() - s.xs.min() > 0.6f * h) return null
+        return if (s.ys[0] < top + h / 2) Trigger.LINE_DOWN else Trigger.LINE_UP
     }
 
     /** One long, flat stroke: a sweep to the side. */

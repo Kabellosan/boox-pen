@@ -132,9 +132,13 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         }
 
         override fun onRawErasingTouchPointListReceived(list: TouchPointList) {
-            // Fill in the path if the firmware sent no move events.
+            // Fill in the path if the firmware sent no move events. With moves already
+            // there, adding the list again would draw the path twice.
             val pts = (0 until list.size()).mapNotNull { list.get(it) }
-            main.post { pts.forEach { eraserPath?.add(it.x, it.y, it.timestamp) } }
+            main.post {
+                val path = eraserPath ?: return@post
+                if (path.size <= 2) pts.forEach { path.add(it.x, it.y, it.timestamp) }
+            }
         }
 
         override fun onEndRawErasing(eraser: Boolean, p: TouchPoint) {
