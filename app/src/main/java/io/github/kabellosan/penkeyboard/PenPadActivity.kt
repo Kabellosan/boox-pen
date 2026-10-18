@@ -168,6 +168,13 @@ class PenPadActivity : Activity(), InkView.Listener {
             Action.BACK -> flushThen { finish() }
             Action.PEN_PAD -> {}
             Action.NEW_LINE -> flushThen { insert("\n") }
+            Action.HIDE_KEYBOARD -> flushThen { finish() }
+            Action.UNDO -> status.text = "Undo works in the keyboard, not in Pen Pad"
+            in Action.FIELD -> flushThen {
+                lastInserted = null
+                if (helper?.fieldAction(action) != true) status.text = "Couldn't do that in the app's field"
+            }
+            in Action.GLOBAL -> flushThen { helper?.globalAction(action) }
             else -> action.app?.let { app ->
                 flushThen {
                     startActivity(Action.launchIntent(app))

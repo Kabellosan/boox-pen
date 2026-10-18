@@ -29,6 +29,17 @@ data class Action(val code: String) {
         PEN_PAD -> "Open Pen Pad"
         FULL_SCREEN -> "Full-screen writing on/off"
         NEW_LINE -> "New line"
+        HIDE_KEYBOARD -> "Hide the keyboard"
+        UNDO -> "Undo"
+        CURSOR_START -> "Cursor to the start"
+        CURSOR_END -> "Cursor to the end"
+        SELECT_ALL -> "Select all"
+        COPY -> "Copy"
+        PASTE -> "Paste"
+        HOME -> "Go home"
+        RECENTS -> "Recent apps"
+        NOTIFICATIONS -> "Notifications"
+        SCREENSHOT -> "Screenshot"
         else -> app?.let { c ->
             val name = runCatching { pm.getActivityInfo(c, 0).loadLabel(pm).toString() }.getOrNull()
             "Open ${name ?: c.packageName}"
@@ -46,7 +57,28 @@ data class Action(val code: String) {
         val PEN_PAD = Action("pen_pad")
         val FULL_SCREEN = Action("full_screen")
         val NEW_LINE = Action("new_line")
-        val BUILT_IN = listOf(NONE, SEND, NEW_LINE, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, DELETE_WORD, BACK)
+        val HIDE_KEYBOARD = Action("hide_keyboard")
+        val UNDO = Action("undo")
+        val CURSOR_START = Action("cursor_start")
+        val CURSOR_END = Action("cursor_end")
+        val SELECT_ALL = Action("select_all")
+        val COPY = Action("copy")
+        val PASTE = Action("paste")
+        val HOME = Action("home")
+        val RECENTS = Action("recents")
+        val NOTIFICATIONS = Action("notifications")
+        val SCREENSHOT = Action("screenshot")
+        val BUILT_IN = listOf(
+            NONE, SEND, NEW_LINE, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, HIDE_KEYBOARD,
+            DELETE_WORD, UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE,
+            BACK, HOME, RECENTS, NOTIFICATIONS, SCREENSHOT,
+        )
+
+        /** Edits on the text field, done the same way wherever the shortcut came from. */
+        val FIELD = setOf(UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE)
+
+        /** Android's own buttons, pressed by the helper. */
+        val GLOBAL = setOf(HOME, RECENTS, NOTIFICATIONS, SCREENSHOT)
         fun openApp(c: ComponentName) = Action(APP + c.flattenToString())
 
         fun launchIntent(c: ComponentName): Intent = Intent(Intent.ACTION_MAIN)

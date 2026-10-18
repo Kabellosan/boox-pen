@@ -17,6 +17,7 @@ import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
@@ -403,6 +404,15 @@ class PenIME : InputMethodService(), InkView.Listener {
                 main.removeCallbacks(commitRunnable)
                 if (hasView && ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()
             }
+            Action.HIDE_KEYBOARD -> flushThen { requestHideSelf(0) }
+            in Action.FIELD -> flushThen { fieldAction(action) }
+            in Action.GLOBAL -> flushThen {
+                if (PenButtonProbe.instance?.globalAction(action) != true) {
+                    if (action == Action.HOME) startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    else showMessage("Turn on the Pen Keyboard helper for that")
+                }
+            }
             else -> action.app?.let { app -> flushThen { startActivity(Action.launchIntent(app)) } }
         }
         // Button taps pause the commit timer; ink still waiting gets read as usual.
@@ -410,6 +420,31 @@ class PenIME : InputMethodService(), InkView.Listener {
             main.removeCallbacks(commitRunnable)
             main.postDelayed(commitRunnable, commitDelayMs)
         }
+    }
+
+    /** Undo, cursor moves and the clipboard, done by the app's own text field. */
+    private fun fieldAction(action: Action) {
+        val ic = currentInputConnection ?: return
+        lastCommitted = null
+        when (action) {
+            Action.UNDO -> ic.performContextMenuAction(android.R.id.undo)
+            Action.SELECT_ALL -> ic.performContextMenuAction(android.R.id.selectAll)
+            Action.COPY -> ic.performContextMenuAction(android.R.id.copy)
+            Action.PASTE -> ic.performContextMenuAction(android.R.id.paste)
+            Action.CURSOR_START -> ic.setSelection(0, 0)
+            Action.CURSOR_END -> {
+                val length = ic.getExtractedText(ExtractedTextRequest(), 0)?.text?.length
+                if (length != null) ic.setSelection(length, length)
+                else sendKeyChord(KeyEvent.KEYCODE_MOVE_END, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
+            }
+        }
+    }
+
+    private fun sendKeyChord(code: Int, meta: Int) {
+        val ic = currentInputConnection ?: return
+        val now = SystemClock.uptimeMillis()
+        ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta))
+        ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta))
     }
 
     /** Deletes the last word before the cursor, with the spaces after it. */
@@ -653,5 +688,8 @@ class PenIME : InputMethodService(), InkView.Listener {
 
         /** Full screen on or off, for a shortcut run by the helper. */
         fun toggleFullScreen() = instance?.let { it.setFullScreen(!it.fullScreen) }
+
+        /** A text-field action for a shortcut run by the helper, while the keyboard is open. */
+        fun runFieldAction(action: Action) = instance?.fieldAction(action)
     }
 }
