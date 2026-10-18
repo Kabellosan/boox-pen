@@ -405,7 +405,9 @@ class PenIME : InputMethodService(), InkView.Listener {
         // A straight line up or down (Send, new line), even over waiting ink.
         val line = if (buttonGestures.pending) null else shortcuts.line(listOf(path))
         if (line != null) {
-            perform(shortcuts.action(line))
+            val action = shortcuts.action(line)
+            PenButtonProbe.record(this, "Keyboard: ${line.label} → ${action.label(packageManager)}")
+            perform(action)
             return
         }
         if (ink.strokes.isNotEmpty() && !buttonGestures.pending && !buttonGestures.isStill(path)) {
@@ -439,7 +441,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     private fun perform(action: Action) {
         when (action) {
             Action.NONE -> {}
-            Action.SEND -> flushThen { enter() }
+            Action.SEND -> flushThen { send() }
             Action.LANG -> toggleLanguage()
             Action.FULL_SCREEN -> setFullScreen(!fullScreen)
             Action.NEW_LINE -> flushThen { newLine() }
@@ -589,6 +591,19 @@ class PenIME : InputMethodService(), InkView.Listener {
         } else {
             sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
         }
+    }
+
+    /**
+     * Sends: the field's own Send action, or else (chat apps like Telegram, whose
+     * field only makes new lines) the app's Send button, pressed by the helper.
+     * A plain Enter only when neither is there.
+     */
+    private fun send() {
+        val info = currentInputEditorInfo
+        if (info == null || sendsAction(info)) { enter(); return }
+        lastCommitted = null
+        if (PenButtonProbe.instance?.clickSend(info.packageName) == true) return
+        sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
     }
 
     /** True when the field wants an action (Send, Go, Search…) instead of a newline. */

@@ -199,9 +199,10 @@ class Shortcuts(context: Context) {
     }
 
     /**
-     * One tall, narrow stroke: [Trigger.LINE_DOWN] or [Trigger.LINE_UP], by which end
-     * it started from. Generous on purpose: only its outline counts (some firmware
-     * hands over a path with points repeated), it may lean, and about 8 mm is enough.
+     * One tall, narrow stroke: [Trigger.LINE_DOWN] or [Trigger.LINE_UP], by whether
+     * its last points lie below its first. Generous on purpose: only its outline
+     * counts (some firmware hands over a path with points repeated), it may lean,
+     * and about 8 mm is enough.
      * Drawn with the button held, so over waiting ink it wins over rubbing out.
      */
     fun line(strokes: List<Stroke>): Trigger? {
@@ -211,7 +212,10 @@ class Shortcuts(context: Context) {
         val bottom = s.ys.max()
         val h = bottom - top
         if (h < 50 * density || s.xs.max() - s.xs.min() > 0.6f * h) return null
-        return if (s.ys[0] < top + h / 2) Trigger.LINE_DOWN else Trigger.LINE_UP
+        val k = maxOf(1, s.size / 5)
+        val start = (0 until k).map { s.ys[it] }.average()
+        val end = (s.size - k until s.size).map { s.ys[it] }.average()
+        return if (end > start) Trigger.LINE_DOWN else Trigger.LINE_UP
     }
 
     /** One long, flat stroke: a sweep to the side. */
