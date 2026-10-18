@@ -43,7 +43,8 @@ area, see-through, so the app stays visible underneath (like the Boox keyboard's
 full-screen mode). Everything else keeps working: the keys and hold-to-delete,
 the guesses, the button cursor slide and the button shortcuts. **Box** or a
 finger tap anywhere on the screen goes back to the normal box; so does closing
-the keyboard. Full screen can also be put on a shortcut (Full-screen writing on/off).
+the keyboard. In full screen a long straight line (taller than any letter, about
+2.5 cm) is a key: draw it **down** for a new line, **up** to Send. Full screen can also be put on a shortcut (Full-screen writing on/off).
 
 ## Pen shortcuts
 
