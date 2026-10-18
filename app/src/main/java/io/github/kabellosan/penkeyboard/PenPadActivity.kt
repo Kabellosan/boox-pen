@@ -175,7 +175,7 @@ class PenPadActivity : Activity(), InkView.Listener {
                 if (helper?.fieldAction(action) != true) status.text = "Couldn't do that in the app's field"
             }
             in Action.GLOBAL -> flushThen { helper?.globalAction(action) }
-            else -> action.app?.let { app ->
+            else -> if (BooxTools.isTool(action)) flushThen { BooxTools.run(this, action) } else action.app?.let { app ->
                 flushThen {
                     startActivity(Action.launchIntent(app))
                     finish()

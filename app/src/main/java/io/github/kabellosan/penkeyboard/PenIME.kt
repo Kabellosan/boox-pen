@@ -413,7 +413,8 @@ class PenIME : InputMethodService(), InkView.Listener {
                     else showMessage("Turn on the Pen Keyboard helper for that")
                 }
             }
-            else -> action.app?.let { app -> flushThen { startActivity(Action.launchIntent(app)) } }
+            else -> if (BooxTools.isTool(action)) flushThen { BooxTools.run(this, action) }
+                else action.app?.let { app -> flushThen { startActivity(Action.launchIntent(app)) } }
         }
         // Button taps pause the commit timer; ink still waiting gets read as usual.
         if (hasView && ink.strokes.isNotEmpty()) {

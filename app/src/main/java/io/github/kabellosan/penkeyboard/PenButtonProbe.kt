@@ -194,7 +194,7 @@ class PenButtonProbe : AccessibilityService() {
                 val word = Regex("\\S+\\s*$").find(before)?.value ?: before.takeLastWhile { it.isWhitespace() }
                 if (word.isNotEmpty()) edit(word.length, "")
             }
-            else -> action.app?.let {
+            else -> if (BooxTools.isTool(action)) BooxTools.run(this, action) else action.app?.let {
                 if (FrozenApps.isFrozen(packageManager, it.packageName)) unfreezeAndOpen(it)
                 else startActivity(Action.launchIntent(it))
             }
@@ -219,7 +219,20 @@ class PenButtonProbe : AccessibilityService() {
         return false
     }
 
+    /** The last Boox screen opened, so each one is logged once. */
+    private var lastBooxWindow: String? = null
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            // Which Boox screen opened (e.g. from the smart button), so its tools can be found.
+            val pkg = event.packageName?.toString().orEmpty()
+            val window = "$pkg/${event.className}"
+            if ((pkg.startsWith("com.onyx") || pkg == "com.android.systemui") && window != lastBooxWindow) {
+                lastBooxWindow = window
+                record(this, "Window: $window")
+            }
+            return
+        }
         val node = event?.source ?: return
         if (node.isEditable && node.packageName?.toString() != packageName) target = node
     }

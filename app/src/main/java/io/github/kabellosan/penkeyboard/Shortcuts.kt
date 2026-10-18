@@ -40,7 +40,7 @@ data class Action(val code: String) {
         RECENTS -> "Recent apps"
         NOTIFICATIONS -> "Notifications"
         SCREENSHOT -> "Screenshot"
-        else -> app?.let { c ->
+        else -> if (BooxTools.isTool(this)) BooxTools.label(this) else app?.let { c ->
             val name = runCatching { pm.getActivityInfo(c, 0).loadLabel(pm).toString() }.getOrNull()
             "Open ${name ?: c.packageName}"
         } ?: code

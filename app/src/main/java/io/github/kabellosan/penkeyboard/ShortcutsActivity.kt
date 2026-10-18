@@ -138,12 +138,35 @@ class ShortcutsActivity : Activity() {
         /** Lets the user choose an action: a built-in one, or "Open an app…" then the app. */
         fun pickAction(context: Context, current: Action, onCancel: () -> Unit = {}, onPick: (Action) -> Unit) {
             val pm = context.packageManager
-            val labels = Action.BUILT_IN.map { (if (it == current) "✓ " else "") + it.label(pm) } + "Open an app…"
+            val labels = Action.BUILT_IN.map { (if (it == current) "✓ " else "") + it.label(pm) } +
+                "Open an app…" + "Boox tool (FreeMark, Quick Notes…)…"
             AlertDialog.Builder(context)
                 .setTitle("What should it do?")
                 .setItems(labels.toTypedArray()) { _, which ->
-                    if (which < Action.BUILT_IN.size) onPick(Action.BUILT_IN[which]) else pickApp(context, onCancel, onPick)
+                    when {
+                        which < Action.BUILT_IN.size -> onPick(Action.BUILT_IN[which])
+                        which == Action.BUILT_IN.size -> pickApp(context, onCancel, onPick)
+                        else -> pickBooxTool(context, onCancel, onPick)
+                    }
                 }
+                .setOnCancelListener { onCancel() }
+                .show()
+        }
+
+        /**
+         * Boox's own tools, found in its system apps by name. Boox doesn't say which
+         * one its smart button uses, so the list shows every likely one to try.
+         */
+        private fun pickBooxTool(context: Context, onCancel: () -> Unit, onPick: (Action) -> Unit) {
+            val tools = BooxTools.find(context)
+            if (tools.isEmpty()) {
+                AlertDialog.Builder(context).setMessage("No Boox tools found on this device.")
+                    .setPositiveButton("OK") { _, _ -> onCancel() }.setOnCancelListener { onCancel() }.show()
+                return
+            }
+            AlertDialog.Builder(context)
+                .setTitle("Which Boox tool? Try one; the key log says what happened.")
+                .setItems(tools.map { it.label }.toTypedArray()) { _, which -> onPick(Action(tools[which].code)) }
                 .setOnCancelListener { onCancel() }
                 .show()
         }
