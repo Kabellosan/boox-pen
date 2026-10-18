@@ -52,19 +52,9 @@ class SetupActivity : Activity() {
             (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager).showInputMethodPicker()
         })
         root.addView(button("3. Download Danish + English models") { download() })
-        root.addView(button("Pen shortcuts: taps, gestures, apps") {
-            startActivity(Intent(this, ShortcutsActivity::class.java))
-        })
         root.addView(TextView(this).apply {
-            text = "Page buttons as shortcut keys: in Boox settings set Customize Buttons → Volume for " +
-                "the apps you write in, and the smart button's long press → None. Then hold Up or Down " +
-                "and tap or draw on the keyboard (set what they do in Pen shortcuts)."
-            textSize = 16f
-        })
-        root.addView(TextView(this).apply {
-            text = "\nSwitch on \"Pen Keyboard helper\" for Go back, Pen Pad, and button taps on any " +
-                "screen: hold the pen's button and tap twice (Go back) or three times (Pad Launch). " +
-                "The log below shows what it saw."
+            text = "\n4. Switch on \"Pen Keyboard helper\" in Accessibility. Go back, Pen Pad, apps, " +
+                "pen taps on any screen and page-button shortcuts need it. The log below shows what it saw."
             textSize = 18f
         })
         root.addView(TextView(this).apply {
@@ -77,6 +67,9 @@ class SetupActivity : Activity() {
         })
         root.addView(button("Open Accessibility settings") {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        })
+        root.addView(button("Pen shortcuts: what the pen and page buttons do") {
+            startActivity(Intent(this, ShortcutsActivity::class.java))
         })
         probeLog = TextView(this).apply { textSize = 16f }
         root.addView(probeLog)
@@ -102,7 +95,7 @@ class SetupActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        val helper = if (PenButtonProbe.instance != null) "Helper: on" else "Helper: off (Pen Pad and page-button shortcuts need it)"
+        val helper = if (PenButtonProbe.instance != null) "Helper: on" else "Helper: off (shortcuts outside the keyboard need it)"
         probeLog.text = helper + "\n" + PenButtonProbe.log(this).ifEmpty { "No keys seen yet." }
     }
 

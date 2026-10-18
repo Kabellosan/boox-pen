@@ -18,6 +18,7 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -28,6 +29,10 @@ import android.widget.TextView
  * Write a word, lift the pen, and after a short pause it is recognized in Danish
  * and English. The best guess in the active language is committed with a space.
  * Tapping another candidate replaces the word just committed.
+ *
+ * Full screen turns the whole screen above the keys into a see-through writing
+ * area over the app, like the Boox keyboard's, with the keys, delete, the cursor
+ * slide and the button shortcuts all still working. A finger tap goes back.
  */
 class PenIME : InputMethodService(), InkView.Listener {
 
@@ -37,6 +42,12 @@ class PenIME : InputMethodService(), InkView.Listener {
     private lateinit var candidateRow: LinearLayout
     private lateinit var langKey: TextView
     private lateinit var enterKey: TextView
+    private lateinit var fullKey: TextView
+    /** The keys and guesses: on top of the box, or along the bottom in full screen. */
+    private lateinit var bar: LinearLayout
+
+    /** The whole screen is the writing area, the app showing through it. */
+    private var fullScreen = false
 
     /** Language whose best guess is committed automatically. */
     private var activeLang = "da"
@@ -54,26 +65,13 @@ class PenIME : InputMethodService(), InkView.Listener {
     private lateinit var shortcuts: Shortcuts
 
     /**
-     * Page Up/Down held + tip strokes: shortcuts of that page button's layer.
-     * Boox sends the page buttons as volume keys when an app's buttons are set
-     * to Volume. The ink shows while drawing and is wiped once it is read.
-     */
-    private lateinit var pageGestures: ButtonGestures
-
-    /**
      * Page-button presses arrive even before the keyboard has ever been shown,
      * when its views don't exist yet.
      */
     private val hasView get() = ::ink.isInitialized
-    private var heldLayer: Layer? = null
-    private var strokeLayer: Layer? = null
-    private var pageLayer = Layer.PAGE_UP
-    private var strokeStartedAt = 0L
 
     /** Page buttons pressed on their own: counted, then run as a [ButtonPress]. */
-    private var keyDownAt = 0L
-    private var strokeDuringHold = false
-    private var pressLayer: Layer? = null
+    private var pressButton: PageButton? = null
     private var pressCount = 0
     // Boox sends each page-button press only on release (down and up 1-3 ms apart),
     // sometimes 0.7 s after the previous one, and drops one of two very fast presses.
@@ -81,12 +79,12 @@ class PenIME : InputMethodService(), InkView.Listener {
     /** How far back from a page button's release tip taps count as done while holding it. */
     private val pageTapWindowMs = 1500L
     private val finishPress = Runnable {
-        val up = pressLayer == Layer.PAGE_UP
+        val up = pressButton == PageButton.UP
         val press = when {
             pressCount >= 2 -> if (up) ButtonPress.UP_DOUBLE else ButtonPress.DOWN_DOUBLE
             else -> if (up) ButtonPress.UP_PRESS else ButtonPress.DOWN_PRESS
         }
-        pressLayer = null
+        pressButton = null
         pressCount = 0
         // A key press must never take the app down (the helper service shares its process).
         val action = shortcuts.action(press)
@@ -109,12 +107,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         activeLang = Shortcuts.language(this)
         buttonGestures = ButtonGestures(10 * resources.displayMetrics.density,
             { trigger -> perform(shortcuts.action(trigger)) },
-            { strokes -> onShape(strokes, Layer.PEN) },
+            ::onShape,
             ::erase)
-        pageGestures = ButtonGestures(10 * resources.displayMetrics.density,
-            { trigger -> endPageGesture(); perform(shortcuts.action(trigger, pageLayer)) },
-            { strokes -> endPageGesture(); onShape(strokes, pageLayer) },
-            { endPageGesture() })
     }
 
     override fun onDestroy() {
@@ -129,37 +123,85 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onCreateInputView(): View {
         val dp = resources.displayMetrics.density
-        val root = LinearLayout(this).apply {
+        // See-through, so the app shows wherever the bar and the box aren't.
+        val root = FrameLayout(this)
+        bar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.WHITE)
         }
 
         // Keys on top, under a black rule: a hard edge between the app and the
         // keyboard. Then the guesses, right above the boxed writing area.
-        root.addView(View(this).apply { setBackgroundColor(Color.BLACK) },
+        bar.addView(View(this).apply { setBackgroundColor(Color.BLACK) },
             LinearLayout.LayoutParams(MATCH_PARENT, (2 * dp).toInt()))
 
         val keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         langKey = key(activeLang.uppercase()) { toggleLanguage() }
         keys.addView(langKey, weight(1f))
         keys.addView(key("⌨") { switchKeyboard() }, weight(1f))
-        keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(2.5f))
+        fullKey = key("Full") { setFullScreen(!fullScreen) }
+        keys.addView(fullKey, weight(1.2f))
+        keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(2f))
         keys.addView(deleteKey(), weight(2.5f))
         enterKey = key("⏎") { flushThen { enter() } }
         enterKey.setOnLongClickListener { flushThen { commit("\n", remember = false) }; true }
         keys.addView(enterKey, weight(1.5f))
-        root.addView(keys, LinearLayout.LayoutParams(MATCH_PARENT, (52 * dp).toInt()))
+        bar.addView(keys, LinearLayout.LayoutParams(MATCH_PARENT, (52 * dp).toInt()))
 
         candidateRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        root.addView(HorizontalScrollView(this).apply {
+        bar.addView(HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             addView(candidateRow)
         }, LinearLayout.LayoutParams(MATCH_PARENT, (44 * dp).toInt()))
 
         ink = InkView(this, this)
-        root.addView(ink, LinearLayout.LayoutParams(MATCH_PARENT, (280 * dp).toInt()))
-
+        root.addView(ink)
+        root.addView(bar)
+        fullScreen = false
+        layOut()
         return root
+    }
+
+    /** Box under the keys, or the whole screen above them. */
+    private fun layOut() {
+        val dp = resources.displayMetrics.density
+        val barHeight = (2 * dp).toInt() + (52 * dp).toInt() + (44 * dp).toInt()
+        ink.transparent = fullScreen
+        ink.onFingerTap = if (fullScreen) ({ setFullScreen(false) }) else null
+        ink.layoutParams = if (fullScreen) {
+            FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { bottomMargin = barHeight }
+        } else {
+            FrameLayout.LayoutParams(MATCH_PARENT, (280 * dp).toInt()).apply { topMargin = barHeight }
+        }
+        bar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT,
+            if (fullScreen) Gravity.BOTTOM else Gravity.TOP)
+        fullKey.text = if (fullScreen) "Box" else "Full"
+        ink.invalidate()
+    }
+
+    /** Switches full-screen writing on or off, typing any waiting ink first. */
+    private fun setFullScreen(on: Boolean) {
+        if (!hasView || !isInputViewShown || on == fullScreen) return
+        flushThen {
+            fullScreen = on
+            layOut()
+            // Raw drawing keeps the old place on screen until it is opened again;
+            // the resize does that too, this is for when the window moves late.
+            ink.postDelayed({ if (isInputViewShown) ink.startPen(force = true) }, 300)
+        }
+    }
+
+    /**
+     * In full screen the window covers the app. Tell Android the app only has to
+     * make room for the bar, and that every touch on the window is ours.
+     */
+    override fun onComputeInsets(outInsets: InputMethodService.Insets) {
+        super.onComputeInsets(outInsets)
+        if (!fullScreen || !hasView || !isInputViewShown) return
+        val loc = IntArray(2).also { bar.getLocationInWindow(it) }
+        outInsets.contentTopInsets = loc[1]
+        outInsets.visibleTopInsets = loc[1]
+        outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_FRAME
     }
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
@@ -177,9 +219,10 @@ class PenIME : InputMethodService(), InkView.Listener {
         shown = false
         main.removeCallbacks(commitRunnable)
         main.removeCallbacks(repeatDelete)
-        heldLayer = null
         ink.stopPen()
         ink.clear()
+        // Next time, in whatever app, the keyboard opens as the box again.
+        if (fullScreen) { fullScreen = false; layOut() }
         super.onFinishInputView(finishingInput)
     }
 
@@ -188,69 +231,45 @@ class PenIME : InputMethodService(), InkView.Listener {
     override fun onStrokeStart() {
         buttonGestures.flush()
         main.removeCallbacks(commitRunnable)
-        strokeLayer = heldLayer
-        if (strokeLayer != null) {
-            strokeStartedAt = SystemClock.uptimeMillis()
-            strokeDuringHold = true
-        } else {
-            pageGestures.flush()
-        }
     }
 
     override fun onStrokeEnd() {
         main.removeCallbacks(commitRunnable)
-        val layer = strokeLayer
-        if (layer == null) {
-            main.postDelayed(commitRunnable, commitDelayMs)
-            return
-        }
-        // A page-button stroke is a shortcut, not writing: take it out of the ink.
-        strokeLayer = null
-        val stroke = ink.strokes.removeLastOrNull() ?: return
-        if (layer != pageLayer) pageGestures.flush()
-        pageLayer = layer
-        pageGestures.feed(stroke, SystemClock.uptimeMillis() - strokeStartedAt)
+        main.postDelayed(commitRunnable, commitDelayMs)
     }
 
-    /** Wipes the page-button strokes off the screen once they are read. */
-    private fun endPageGesture() {
-        if (!ink.drawing) ink.repaint()
+    /** A line break, without the space we put after the last word. */
+    private fun newLine() {
+        val ic = currentInputConnection
+        if (lastCommitted?.endsWith(" ") == true && ic?.getTextBeforeCursor(1, 0)?.toString() == " ") {
+            ic?.deleteSurroundingText(1, 0)
+        }
+        commit("\n", remember = false)
     }
 
     /**
-     * Page buttons. Every press is swallowed so the volume doesn't change. With the
-     * keyboard open, holding one makes pen strokes its shortcuts; a quick press with
-     * no strokes (or any press while the keyboard is hidden) counts toward a
-     * press or double press.
+     * Page buttons. Every press is swallowed so the volume doesn't change, and
+     * counts toward a press or double press. Boox sends a press only when the
+     * button is let go, so how long it was held can't be told.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        val layer = pageButton(keyCode) ?: return super.onKeyDown(keyCode, event)
+        val button = pageButton(keyCode) ?: return super.onKeyDown(keyCode, event)
         if (event.repeatCount > 0) return true
         PenButtonProbe.record(this, "Keyboard got ${KeyEvent.keyCodeToString(keyCode)}" +
             if (isInputViewShown) " (keyboard open)" else " (keyboard hidden)")
-        keyDownAt = SystemClock.uptimeMillis()
-        strokeDuringHold = false
         // A press is still being counted: wait for this one's release before deciding,
         // so the gap is measured from release to the next press, not release to release.
         main.removeCallbacks(finishPress)
-        if (pressLayer != null && pressLayer != layer) finishPress.run()
-        if (isInputViewShown) {
-            flushThen {}
-            heldLayer = layer
-        }
+        if (pressButton != null && pressButton != button) finishPress.run()
+        if (isInputViewShown) flushThen {}
         return true
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        val layer = pageButton(keyCode) ?: return super.onKeyUp(keyCode, event)
-        if (heldLayer == layer) heldLayer = null
-        val held = SystemClock.uptimeMillis() - keyDownAt
-        val quick = held < 500
-        PenButtonProbe.record(this, "  up after $held ms" + (if (strokeDuringHold) ", drew" else "") +
-            (if (quick && !strokeDuringHold) ", press ${pressCount + 1}" else ", not counted"))
-        if (!strokeDuringHold && quick && pageTaps(layer, event)) return true
-        if (!strokeDuringHold && quick) countPress(layer)
-        else if (pressLayer != null) finishPress.run()
+        val button = pageButton(keyCode) ?: return super.onKeyUp(keyCode, event)
+        PenButtonProbe.record(this, "  up, press ${pressCount + 1}")
+        if (pageTaps(button, event)) return true
+        countPress(button)
         return true
     }
 
@@ -258,17 +277,17 @@ class PenIME : InputMethodService(), InkView.Listener {
      * Page button held while the tip tapped the screen two or three times (seen by
      * the helper anywhere outside the strip). True if that was it and it ran.
      */
-    private fun pageTaps(layer: Layer, event: KeyEvent): Boolean {
+    private fun pageTaps(button: PageButton, event: KeyEvent): Boolean {
         val taps = PenButtonProbe.instance?.takeTipTaps(event.eventTime, pageTapWindowMs) ?: return false
         if (taps < 2) return false
-        val up = layer == Layer.PAGE_UP
+        val up = button == PageButton.UP
         val tap = when {
             taps >= 3 -> if (up) PageTap.UP_TRIPLE else PageTap.DOWN_TRIPLE
             else -> if (up) PageTap.UP_DOUBLE else PageTap.DOWN_DOUBLE
         }
         // These taps were the shortcut, not part of a press count.
         main.removeCallbacks(finishPress)
-        pressLayer = null
+        pressButton = null
         pressCount = 0
         val action = shortcuts.action(tap)
         try {
@@ -280,17 +299,17 @@ class PenIME : InputMethodService(), InkView.Listener {
         return true
     }
 
-    private fun countPress(layer: Layer) {
+    private fun countPress(button: PageButton) {
         main.removeCallbacks(finishPress)
-        pressLayer = layer
+        pressButton = button
         pressCount++
         main.postDelayed(finishPress, pressGapMs)
     }
 
     /** The Go 7's page buttons, as Boox sends them (volume keys) or as page keys. */
-    private fun pageButton(keyCode: Int): Layer? = when (keyCode) {
-        KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_PAGE_UP -> Layer.PAGE_UP
-        KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> Layer.PAGE_DOWN
+    private fun pageButton(keyCode: Int): PageButton? = when (keyCode) {
+        KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_PAGE_UP -> PageButton.UP
+        KeyEvent.KEYCODE_VOLUME_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> PageButton.DOWN
         else -> null
     }
 
@@ -332,6 +351,14 @@ class PenIME : InputMethodService(), InkView.Listener {
             sliding = false
             return
         }
+        // A straight line up or down (Send, new line), even over waiting ink.
+        val line = if (buttonGestures.pending) null else shortcuts.line(listOf(path))
+        if (line != null) {
+            val action = shortcuts.action(line)
+            PenButtonProbe.record(this, "Keyboard: ${line.label} → ${action.label(packageManager)}")
+            perform(action)
+            return
+        }
         if (ink.strokes.isNotEmpty() && !buttonGestures.pending && !buttonGestures.isStill(path)) {
             erase(path)
             return
@@ -349,8 +376,8 @@ class PenIME : InputMethodService(), InkView.Listener {
     }
 
     /** A shape drawn with a button held: run the shortcut it matches, if any. */
-    private fun onShape(strokes: List<Stroke>, layer: Layer) {
-        val match = shortcuts.match(strokes, packageManager, layer)
+    private fun onShape(strokes: List<Stroke>) {
+        val match = shortcuts.match(strokes, packageManager)
         if (match == null) {
             showMessage("No shortcut for that shape")
             perform(Action.NONE)
@@ -363,8 +390,10 @@ class PenIME : InputMethodService(), InkView.Listener {
     private fun perform(action: Action) {
         when (action) {
             Action.NONE -> {}
-            Action.SEND -> flushThen { enter() }
+            Action.SEND -> flushThen { send() }
             Action.LANG -> toggleLanguage()
+            Action.FULL_SCREEN -> setFullScreen(!fullScreen)
+            Action.NEW_LINE -> flushThen { newLine() }
             Action.QUICK_PAD -> openLauncher()
             Action.BACK -> flushThen { goBack() }
             Action.PEN_PAD -> flushThen {
@@ -513,6 +542,19 @@ class PenIME : InputMethodService(), InkView.Listener {
         }
     }
 
+    /**
+     * Sends: the field's own Send action, or else (chat apps like Telegram, whose
+     * field only makes new lines) the app's Send button, pressed by the helper.
+     * A plain Enter only when neither is there.
+     */
+    private fun send() {
+        val info = currentInputEditorInfo
+        if (info == null || sendsAction(info)) { enter(); return }
+        lastCommitted = null
+        if (PenButtonProbe.instance?.clickSend(info.packageName) == true) return
+        sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
+    }
+
     /** True when the field wants an action (Send, Go, Search…) instead of a newline. */
     private fun sendsAction(info: EditorInfo): Boolean {
         if (info.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION != 0) return false
@@ -608,5 +650,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         /** The running keyboard, so the helper can close it before pressing Back. */
         var instance: PenIME? = null
             private set
+
+        /** Full screen on or off, for a shortcut run by the helper. */
+        fun toggleFullScreen() = instance?.let { it.setFullScreen(!it.fullScreen) }
     }
 }

@@ -36,6 +36,16 @@ its test build; the next build from `main` installs over it.
   `space`, `⌫` (clears unrecognized ink first, otherwise deletes a character),
   `⏎` (shows **Send** in chat apps and sends; long-press for a new line).
 
+## Full screen
+
+**Full** on the keyboard turns the whole screen above the keys into the writing
+area, see-through, so the app stays visible underneath (like the Boox keyboard's
+full-screen mode). Everything else keeps working: the keys and hold-to-delete,
+the guesses, the button cursor slide and the button shortcuts. **Box** or a
+finger tap anywhere on the screen goes back to the normal box; so does closing
+the keyboard. With the pen's button held, a straight line **down** is a new line and a line
+**up** sends, in full screen and in the box (Pen shortcuts can change both). Full screen can also be put on a shortcut (Full-screen writing on/off).
+
 ## Pen shortcuts
 
 Hold the pen's side button (on the Go 7 that makes the pen an eraser) and tap,
@@ -49,15 +59,17 @@ app) sets what each does:
   action. Draw it with the button held on an empty strip, or with the tip in Pad Launch.
   A T for Telegram, a circle for anything you like.
 
-- Page buttons: hold the Go 7's page Up or Down button and tap or draw with the tip
-  on the keyboard. Each button has its own set of actions (tap twice, three times,
-  press, swipe; recorded gestures are shared). Boox has to send the buttons as
-  volume keys: set Customize Buttons → Volume for the apps you write in, and the
-  smart button's long press → None. Pen Keyboard swallows those keys.
-- Page buttons on their own: a press or double press of Up or Down runs an action
-  even with the keyboard hidden (defaults: Up double press opens Pen Pad, Down
-  double press goes back). Opening Pen Pad or an app from a hidden keyboard needs
-  Pen Keyboard helper switched on, since Android blocks background app starts.
+- Pen button anywhere: with the helper on, hold the button and tap twice (Go back)
+  or three times (Pad Launch) on any screen.
+- Page buttons: a press or double press of Up or Down runs an action even with the
+  keyboard hidden (defaults: Up double press opens Pen Pad, Down double press goes
+  back), and so does holding one while tapping the screen two or three times with the
+  tip. Boox has to send the buttons as volume keys: set Customize Buttons → Volume
+  for the apps you write in, and the smart button's long press → None. Pen Keyboard
+  swallows those keys. Opening Pen Pad or an app from a hidden keyboard needs Pen
+  Keyboard helper switched on, since Android blocks background app starts. (Boox
+  sends a page press only when the button is let go, so "hold a page button and
+  draw" can't work and isn't offered.)
 
 Over unrecognized ink, a button sweep still rubs out what it touches. On an empty
 strip, a shape that matches nothing does nothing (it says so in the guess row),
