@@ -268,20 +268,23 @@ class PenIME : InputMethodService(), InkView.Listener {
         // The other button's presses are done being counted.
         if (pressButton != null && pressButton != button) finishPress.run()
         countOnUp = false
+        // Boox's own time on the key may not be the press's; time it as it reaches us.
+        val now = SystemClock.uptimeMillis()
         when {
             pageTaps(button, event) -> {}
             shortcuts.action(press(button, double = false)) != Action.NONE -> countOnUp = true
             pressButton == button -> countOnUp = true
-            button == passedButton && event.eventTime - passedAt <= pressGapMs &&
+            button == passedButton && now - passedAt <= pressGapMs &&
                 shortcuts.action(press(button, double = true)) != Action.NONE -> {
                 passedButton = null
                 runPress(press(button, double = true))
             }
             else -> {
+                val gap = if (passedButton == button) " (${now - passedAt} ms after the last)" else ""
                 passedButton = button
-                passedAt = event.eventTime
+                passedAt = now
                 takenKey = 0
-                PenButtonProbe.record(this, "  passed on to the app")
+                PenButtonProbe.record(this, "  passed on to the app$gap")
                 return super.onKeyDown(keyCode, event)
             }
         }
@@ -320,7 +323,7 @@ class PenIME : InputMethodService(), InkView.Listener {
      * the helper anywhere outside the strip). True if that was it and it ran.
      */
     private fun pageTaps(button: PageButton, event: KeyEvent): Boolean {
-        val taps = PenButtonProbe.instance?.takeTipTaps(event.eventTime, pageTapWindowMs) ?: return false
+        val taps = PenButtonProbe.instance?.takeTipTaps(SystemClock.uptimeMillis(), pageTapWindowMs) ?: return false
         if (taps < 2) return false
         val up = button == PageButton.UP
         val tap = when {
