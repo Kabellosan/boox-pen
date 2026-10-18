@@ -29,7 +29,19 @@ data class Action(val code: String) {
         PEN_PAD -> "Open Pen Pad"
         FULL_SCREEN -> "Full-screen writing on/off"
         NEW_LINE -> "New line"
-        else -> app?.let { c ->
+        HIDE_KEYBOARD -> "Hide the keyboard"
+        UNDO -> "Undo"
+        CURSOR_START -> "Cursor to the start"
+        CURSOR_END -> "Cursor to the end"
+        SELECT_ALL -> "Select all"
+        COPY -> "Copy"
+        PASTE -> "Paste"
+        HOME -> "Go home"
+        RECENTS -> "Recent apps"
+        NOTIFICATIONS -> "Notifications"
+        SCREENSHOT -> "Screenshot"
+        QUICK_NOTE -> "Boox Quick Note"
+        else -> if (BooxTools.isTool(this)) BooxTools.label(this) else app?.let { c ->
             val name = runCatching { pm.getActivityInfo(c, 0).loadLabel(pm).toString() }.getOrNull()
             "Open ${name ?: c.packageName}"
         } ?: code
@@ -46,7 +58,29 @@ data class Action(val code: String) {
         val PEN_PAD = Action("pen_pad")
         val FULL_SCREEN = Action("full_screen")
         val NEW_LINE = Action("new_line")
-        val BUILT_IN = listOf(NONE, SEND, NEW_LINE, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, DELETE_WORD, BACK)
+        val HIDE_KEYBOARD = Action("hide_keyboard")
+        val UNDO = Action("undo")
+        val CURSOR_START = Action("cursor_start")
+        val CURSOR_END = Action("cursor_end")
+        val SELECT_ALL = Action("select_all")
+        val COPY = Action("copy")
+        val PASTE = Action("paste")
+        val HOME = Action("home")
+        val RECENTS = Action("recents")
+        val NOTIFICATIONS = Action("notifications")
+        val SCREENSHOT = Action("screenshot")
+        val QUICK_NOTE = Action("quick_note")
+        val BUILT_IN = listOf(
+            NONE, SEND, NEW_LINE, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, HIDE_KEYBOARD,
+            DELETE_WORD, UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE,
+            BACK, HOME, RECENTS, NOTIFICATIONS, SCREENSHOT, QUICK_NOTE,
+        )
+
+        /** Edits on the text field, done the same way wherever the shortcut came from. */
+        val FIELD = setOf(UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE)
+
+        /** Android's own buttons, pressed by the helper. */
+        val GLOBAL = setOf(HOME, RECENTS, NOTIFICATIONS, SCREENSHOT)
         fun openApp(c: ComponentName) = Action(APP + c.flattenToString())
 
         fun launchIntent(c: ComponentName): Intent = Intent(Intent.ACTION_MAIN)
@@ -72,9 +106,9 @@ enum class PageButton { UP, DOWN }
 /** Pressing a page button on its own, without the pen. */
 enum class ButtonPress(val key: String, val label: String, val default: Action) {
     UP_PRESS("up_press", "Page Up press", Action.NONE),
-    UP_DOUBLE("up_double", "Page Up double press", Action.PEN_PAD),
+    UP_DOUBLE("up_double", "Page Up double press", Action.NONE),
     DOWN_PRESS("down_press", "Page Down press", Action.NONE),
-    DOWN_DOUBLE("down_double", "Page Down double press", Action.BACK),
+    DOWN_DOUBLE("down_double", "Page Down double press", Action.NONE),
 }
 
 /**
@@ -82,9 +116,9 @@ enum class ButtonPress(val key: String, val label: String, val default: Action) 
  * the keyboard's strip. Seen when the button is let go (that's when Boox sends it).
  */
 enum class PageTap(val key: String, val label: String, val default: Action) {
-    UP_DOUBLE("up_tap2", "Hold page Up, tap twice", Action.QUICK_PAD),
+    UP_DOUBLE("up_tap2", "Hold page Up, tap twice", Action.NONE),
     UP_TRIPLE("up_tap3", "Hold page Up, tap three times", Action.NONE),
-    DOWN_DOUBLE("down_tap2", "Hold page Down, tap twice", Action.PEN_PAD),
+    DOWN_DOUBLE("down_tap2", "Hold page Down, tap twice", Action.NONE),
     DOWN_TRIPLE("down_tap3", "Hold page Down, tap three times", Action.NONE),
 }
 
@@ -154,6 +188,17 @@ class Shortcuts(context: Context) {
     fun action(b: ButtonPress): Action = prefs.getString(b.key, null)?.let(::Action) ?: b.default
 
     fun setAction(b: ButtonPress, a: Action) = prefs.edit().putString(b.key, a.code).apply()
+
+    /**
+     * True if any shortcut uses [button]. Otherwise the keyboard leaves its presses
+     * alone, so reading apps still turn pages with it.
+     */
+    fun usesPageButton(button: PageButton): Boolean {
+        val up = button == PageButton.UP
+        val presses = ButtonPress.values().filter { it.key.startsWith("up") == up }.map(::action)
+        val taps = PageTap.values().filter { it.key.startsWith("up") == up }.map(::action)
+        return (presses + taps).any { it != Action.NONE }
+    }
 
     fun action(t: PageTap): Action = prefs.getString(t.key, null)?.let(::Action) ?: t.default
 

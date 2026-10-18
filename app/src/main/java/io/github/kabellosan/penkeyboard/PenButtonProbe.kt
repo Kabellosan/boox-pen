@@ -185,13 +185,17 @@ class PenButtonProbe : AccessibilityService() {
             Action.PEN_PAD -> launch(Intent(this, PenPadActivity::class.java))
             Action.FULL_SCREEN -> if (PenIME.shown) PenIME.toggleFullScreen()
             Action.SEND -> pressEnter()
+            Action.HIDE_KEYBOARD -> PenIME.instance?.requestHideSelf(0)
+            Action.QUICK_NOTE -> BooxTools.openQuickNote(this)
+            in Action.FIELD -> if (PenIME.shown) PenIME.runFieldAction(action) else fieldAction(action)
+            in Action.GLOBAL -> globalAction(action)
             Action.LANG -> Shortcuts.setLanguage(this, if (Shortcuts.language(this) == "da") "en" else "da")
             Action.DELETE_WORD -> {
                 val before = textBeforeCursor(64)
                 val word = Regex("\\S+\\s*$").find(before)?.value ?: before.takeLastWhile { it.isWhitespace() }
                 if (word.isNotEmpty()) edit(word.length, "")
             }
-            else -> action.app?.let {
+            else -> if (BooxTools.isTool(action)) BooxTools.run(this, action) else action.app?.let {
                 if (FrozenApps.isFrozen(packageManager, it.packageName)) unfreezeAndOpen(it)
                 else startActivity(Action.launchIntent(it))
             }
@@ -216,7 +220,20 @@ class PenButtonProbe : AccessibilityService() {
         return false
     }
 
+    /** The last Boox screen opened, so each one is logged once. */
+    private var lastBooxWindow: String? = null
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            // Which Boox screen opened (e.g. from the smart button), so its tools can be found.
+            val pkg = event.packageName?.toString().orEmpty()
+            val window = "$pkg/${event.className}"
+            if ((pkg.startsWith("com.onyx") || pkg == "com.android.systemui") && window != lastBooxWindow) {
+                lastBooxWindow = window
+                record(this, "Window: $window")
+            }
+            return
+        }
         val node = event?.source ?: return
         if (node.isEditable && node.packageName?.toString() != packageName) target = node
     }
@@ -262,6 +279,39 @@ class PenButtonProbe : AccessibilityService() {
             putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, cursor)
         })
         return true
+    }
+
+    /** Presses Home, Recents, the notifications or takes a screenshot. False if it couldn't. */
+    fun globalAction(action: Action): Boolean {
+        val global = when (action) {
+            Action.HOME -> GLOBAL_ACTION_HOME
+            Action.RECENTS -> GLOBAL_ACTION_RECENTS
+            Action.NOTIFICATIONS -> GLOBAL_ACTION_NOTIFICATIONS
+            Action.SCREENSHOT -> GLOBAL_ACTION_TAKE_SCREENSHOT
+            else -> return false
+        }
+        return performGlobalAction(global)
+    }
+
+    /**
+     * Cursor moves and the clipboard on the target field, for when the keyboard
+     * isn't open. Undo has no accessibility action, so it needs the keyboard.
+     */
+    fun fieldAction(action: Action): Boolean {
+        val n = target ?: return false
+        val (text, _, _) = fieldState() ?: return false
+        fun select(start: Int, end: Int) = n.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, start)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, end)
+        })
+        return when (action) {
+            Action.CURSOR_START -> select(0, 0)
+            Action.CURSOR_END -> select(text.length, text.length)
+            Action.SELECT_ALL -> select(0, text.length)
+            Action.COPY -> n.performAction(AccessibilityNodeInfo.ACTION_COPY)
+            Action.PASTE -> n.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+            else -> false
+        }
     }
 
     /** Presses the field's Send/Done/Enter action, if it has one. */
