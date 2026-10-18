@@ -3,7 +3,6 @@ package io.github.kabellosan.penkeyboard
 import android.content.ComponentName
 import android.content.Intent
 import android.content.Context
-import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import android.os.UserManager
@@ -75,9 +74,8 @@ class AppMatcher(
                 if (info.packageName in found) continue
                 val main = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(info.packageName)
                 val activity = pm.queryIntentActivities(main, flags).firstOrNull()?.activityInfo ?: continue
-                val installed = (info.flags and ApplicationInfo.FLAG_INSTALLED) != 0
                 add(info.loadLabel(pm), ComponentName(activity.packageName, activity.name),
-                    frozen = !info.enabled || !installed)
+                    frozen = FrozenApps.isFrozen(info))
             }
         } catch (e: Throwable) {
             Log.w(PenApp.TAG, "Frozen apps query failed: ${e.message}")

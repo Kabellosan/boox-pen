@@ -1,6 +1,7 @@
 package io.github.kabellosan.penkeyboard
 
 import android.accessibilityservice.AccessibilityService
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
@@ -24,6 +25,7 @@ import java.util.Locale
  * - lets Pen Pad write into the text field you were using in another app;
  * - lets the Go back shortcut press Android's real Back button;
  * - turns eraser taps on any screen (outside the keyboard's strip) into shortcuts;
+ * - unfreezes an app Boox froze when Pad Launch opens it, by tapping it in Boox's Apps screen;
  * - probes whether the pen's side button sends anything the whole system can see.
  *
  * Text fields: it remembers the last editable field that got focus in another
@@ -189,9 +191,20 @@ class PenButtonProbe : AccessibilityService() {
                 val word = Regex("\\S+\\s*$").find(before)?.value ?: before.takeLastWhile { it.isWhitespace() }
                 if (word.isNotEmpty()) edit(word.length, "")
             }
-            else -> action.app?.let { startActivity(Action.launchIntent(it)) }
+            else -> action.app?.let {
+                if (FrozenApps.isFrozen(packageManager, it.packageName)) unfreezeAndOpen(it)
+                else startActivity(Action.launchIntent(it))
+            }
         }
     }
+
+    // ── Unfreezing apps Boox froze ──────────────────────────────────
+
+    private val unfreezer by lazy { Unfreezer(this) }
+
+    /** Taps [app] in Boox's Apps screen, which unfreezes and opens it. */
+    fun unfreezeAndOpen(app: ComponentName, label: String = FrozenApps.label(packageManager, app.packageName)) =
+        unfreezer.start(app, label)
 
     private fun launch(intent: Intent) = startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 

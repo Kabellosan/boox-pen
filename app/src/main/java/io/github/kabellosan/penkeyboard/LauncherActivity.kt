@@ -107,8 +107,8 @@ class LauncherActivity : Activity(), InkView.Listener {
         val strokes = ink.strokes.toList()
         if (strokes.isEmpty()) return
         shortcuts.matchGesture(strokes)?.first?.action?.app?.let { app ->
-            startActivity(Action.launchIntent(app))
-            finish()
+            launch(matcher.apps.firstOrNull { it.component.packageName == app.packageName }
+                ?: AppEntry(app.packageName, app))
             return
         }
         val w = ink.width.toFloat()
@@ -173,14 +173,33 @@ class LauncherActivity : Activity(), InkView.Listener {
     }
 
     private fun launch(app: AppEntry) {
+        // Checked again here: the list was made when Pad Launch opened.
+        if (FrozenApps.isFrozen(packageManager, app.component.packageName)) {
+            unfreeze(app)
+            return
+        }
         try {
             startActivity(Action.launchIntent(app.component))
             finish()
         } catch (e: Exception) {
-            // Typically a frozen app: Android won't start a disabled one.
             choices.removeAllViews()
-            status.text = "Couldn't open ${app.label}" + if (app.frozen) ": it's frozen in Boox, unfreeze it there" else ""
+            status.text = "Couldn't open ${app.label}"
         }
+    }
+
+    /**
+     * Boox froze [app]. The helper can tap it in Boox's Apps screen, which
+     * unfreezes and opens it; without the helper, say where to do that.
+     */
+    private fun unfreeze(app: AppEntry) {
+        val helper = PenButtonProbe.instance
+        if (helper != null) {
+            helper.unfreezeAndOpen(app.component, app.label)
+            finish()
+            return
+        }
+        choices.removeAllViews()
+        status.text = "${app.label} is frozen: tap it in Boox's Apps screen, or turn on Pen Keyboard helper to do it from here"
     }
 
     private fun reset() {
