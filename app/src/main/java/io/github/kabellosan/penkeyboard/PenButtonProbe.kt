@@ -383,7 +383,7 @@ class PenButtonProbe : AccessibilityService() {
         fun record(context: Context, line: String) {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT).format(Date())
-            val lines = (listOf("$time  $line") + (prefs.getString(LOG, "") ?: "").lines().filter { it.isNotBlank() }).take(20)
+            val lines = (listOf("$time  $line") + (prefs.getString(LOG, "") ?: "").lines().filter { it.isNotBlank() }).take(60)
             prefs.edit().putString(LOG, lines.joinToString("\n")).apply()
         }
 
