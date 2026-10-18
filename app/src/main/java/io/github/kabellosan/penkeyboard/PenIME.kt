@@ -18,6 +18,7 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -28,6 +29,10 @@ import android.widget.TextView
  * Write a word, lift the pen, and after a short pause it is recognized in Danish
  * and English. The best guess in the active language is committed with a space.
  * Tapping another candidate replaces the word just committed.
+ *
+ * Full screen turns the whole screen above the keys into a see-through writing
+ * area over the app, like the Boox keyboard's, with the keys, delete, the cursor
+ * slide and the button shortcuts all still working. A finger tap goes back.
  */
 class PenIME : InputMethodService(), InkView.Listener {
 
@@ -37,6 +42,12 @@ class PenIME : InputMethodService(), InkView.Listener {
     private lateinit var candidateRow: LinearLayout
     private lateinit var langKey: TextView
     private lateinit var enterKey: TextView
+    private lateinit var fullKey: TextView
+    /** The keys and guesses: on top of the box, or along the bottom in full screen. */
+    private lateinit var bar: LinearLayout
+
+    /** The whole screen is the writing area, the app showing through it. */
+    private var fullScreen = false
 
     /** Language whose best guess is committed automatically. */
     private var activeLang = "da"
@@ -129,37 +140,85 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onCreateInputView(): View {
         val dp = resources.displayMetrics.density
-        val root = LinearLayout(this).apply {
+        // See-through, so the app shows wherever the bar and the box aren't.
+        val root = FrameLayout(this)
+        bar = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.WHITE)
         }
 
         // Keys on top, under a black rule: a hard edge between the app and the
         // keyboard. Then the guesses, right above the boxed writing area.
-        root.addView(View(this).apply { setBackgroundColor(Color.BLACK) },
+        bar.addView(View(this).apply { setBackgroundColor(Color.BLACK) },
             LinearLayout.LayoutParams(MATCH_PARENT, (2 * dp).toInt()))
 
         val keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         langKey = key(activeLang.uppercase()) { toggleLanguage() }
         keys.addView(langKey, weight(1f))
         keys.addView(key("⌨") { switchKeyboard() }, weight(1f))
-        keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(2.5f))
+        fullKey = key("Full") { setFullScreen(!fullScreen) }
+        keys.addView(fullKey, weight(1.2f))
+        keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(2f))
         keys.addView(deleteKey(), weight(2.5f))
         enterKey = key("⏎") { flushThen { enter() } }
         enterKey.setOnLongClickListener { flushThen { commit("\n", remember = false) }; true }
         keys.addView(enterKey, weight(1.5f))
-        root.addView(keys, LinearLayout.LayoutParams(MATCH_PARENT, (52 * dp).toInt()))
+        bar.addView(keys, LinearLayout.LayoutParams(MATCH_PARENT, (52 * dp).toInt()))
 
         candidateRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        root.addView(HorizontalScrollView(this).apply {
+        bar.addView(HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             addView(candidateRow)
         }, LinearLayout.LayoutParams(MATCH_PARENT, (44 * dp).toInt()))
 
         ink = InkView(this, this)
-        root.addView(ink, LinearLayout.LayoutParams(MATCH_PARENT, (280 * dp).toInt()))
-
+        root.addView(ink)
+        root.addView(bar)
+        fullScreen = false
+        layOut()
         return root
+    }
+
+    /** Box under the keys, or the whole screen above them. */
+    private fun layOut() {
+        val dp = resources.displayMetrics.density
+        val barHeight = (2 * dp).toInt() + (52 * dp).toInt() + (44 * dp).toInt()
+        ink.transparent = fullScreen
+        ink.onFingerTap = if (fullScreen) ({ setFullScreen(false) }) else null
+        ink.layoutParams = if (fullScreen) {
+            FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { bottomMargin = barHeight }
+        } else {
+            FrameLayout.LayoutParams(MATCH_PARENT, (280 * dp).toInt()).apply { topMargin = barHeight }
+        }
+        bar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT,
+            if (fullScreen) Gravity.BOTTOM else Gravity.TOP)
+        fullKey.text = if (fullScreen) "Box" else "Full"
+        ink.invalidate()
+    }
+
+    /** Switches full-screen writing on or off, typing any waiting ink first. */
+    private fun setFullScreen(on: Boolean) {
+        if (!hasView || !isInputViewShown || on == fullScreen) return
+        flushThen {
+            fullScreen = on
+            layOut()
+            // Raw drawing keeps the old place on screen until it is opened again;
+            // the resize does that too, this is for when the window moves late.
+            ink.postDelayed({ if (isInputViewShown) ink.startPen(force = true) }, 300)
+        }
+    }
+
+    /**
+     * In full screen the window covers the app. Tell Android the app only has to
+     * make room for the bar, and that every touch on the window is ours.
+     */
+    override fun onComputeInsets(outInsets: InputMethodService.Insets) {
+        super.onComputeInsets(outInsets)
+        if (!fullScreen || !hasView || !isInputViewShown) return
+        val loc = IntArray(2).also { bar.getLocationInWindow(it) }
+        outInsets.contentTopInsets = loc[1]
+        outInsets.visibleTopInsets = loc[1]
+        outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_FRAME
     }
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
@@ -180,6 +239,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         heldLayer = null
         ink.stopPen()
         ink.clear()
+        // Next time, in whatever app, the keyboard opens as the box again.
+        if (fullScreen) { fullScreen = false; layOut() }
         super.onFinishInputView(finishingInput)
     }
 
@@ -210,6 +271,15 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (layer != pageLayer) pageGestures.flush()
         pageLayer = layer
         pageGestures.feed(stroke, SystemClock.uptimeMillis() - strokeStartedAt)
+    }
+
+    /** A line break, without the space we put after the last word. */
+    private fun newLine() {
+        val ic = currentInputConnection
+        if (lastCommitted?.endsWith(" ") == true && ic?.getTextBeforeCursor(1, 0)?.toString() == " ") {
+            ic?.deleteSurroundingText(1, 0)
+        }
+        commit("\n", remember = false)
     }
 
     /** Wipes the page-button strokes off the screen once they are read. */
@@ -332,6 +402,14 @@ class PenIME : InputMethodService(), InkView.Listener {
             sliding = false
             return
         }
+        // A straight line up or down (Send, new line), even over waiting ink.
+        val line = if (buttonGestures.pending) null else shortcuts.line(listOf(path))
+        if (line != null) {
+            val action = shortcuts.action(line)
+            PenButtonProbe.record(this, "Keyboard: ${line.label} → ${action.label(packageManager)}")
+            perform(action)
+            return
+        }
         if (ink.strokes.isNotEmpty() && !buttonGestures.pending && !buttonGestures.isStill(path)) {
             erase(path)
             return
@@ -363,8 +441,10 @@ class PenIME : InputMethodService(), InkView.Listener {
     private fun perform(action: Action) {
         when (action) {
             Action.NONE -> {}
-            Action.SEND -> flushThen { enter() }
+            Action.SEND -> flushThen { send() }
             Action.LANG -> toggleLanguage()
+            Action.FULL_SCREEN -> setFullScreen(!fullScreen)
+            Action.NEW_LINE -> flushThen { newLine() }
             Action.QUICK_PAD -> openLauncher()
             Action.BACK -> flushThen { goBack() }
             Action.PEN_PAD -> flushThen {
@@ -513,6 +593,19 @@ class PenIME : InputMethodService(), InkView.Listener {
         }
     }
 
+    /**
+     * Sends: the field's own Send action, or else (chat apps like Telegram, whose
+     * field only makes new lines) the app's Send button, pressed by the helper.
+     * A plain Enter only when neither is there.
+     */
+    private fun send() {
+        val info = currentInputEditorInfo
+        if (info == null || sendsAction(info)) { enter(); return }
+        lastCommitted = null
+        if (PenButtonProbe.instance?.clickSend(info.packageName) == true) return
+        sendDownUpKeyEvents(KeyEvent.KEYCODE_ENTER)
+    }
+
     /** True when the field wants an action (Send, Go, Search…) instead of a newline. */
     private fun sendsAction(info: EditorInfo): Boolean {
         if (info.imeOptions and EditorInfo.IME_FLAG_NO_ENTER_ACTION != 0) return false
@@ -608,5 +701,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         /** The running keyboard, so the helper can close it before pressing Back. */
         var instance: PenIME? = null
             private set
+
+        /** Full screen on or off, for a shortcut run by the helper. */
+        fun toggleFullScreen() = instance?.let { it.setFullScreen(!it.fullScreen) }
     }
 }

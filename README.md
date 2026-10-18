@@ -36,6 +36,16 @@ its test build; the next build from `main` installs over it.
   `space`, `⌫` (clears unrecognized ink first, otherwise deletes a character),
   `⏎` (shows **Send** in chat apps and sends; long-press for a new line).
 
+## Full screen
+
+**Full** on the keyboard turns the whole screen above the keys into the writing
+area, see-through, so the app stays visible underneath (like the Boox keyboard's
+full-screen mode). Everything else keeps working: the keys and hold-to-delete,
+the guesses, the button cursor slide and the button shortcuts. **Box** or a
+finger tap anywhere on the screen goes back to the normal box; so does closing
+the keyboard. With the pen's button held, a straight line **down** is a new line and a line
+**up** sends, in full screen and in the box (Pen shortcuts can change both). Full screen can also be put on a shortcut (Full-screen writing on/off).
+
 ## Pen shortcuts
 
 Hold the pen's side button (on the Go 7 that makes the pen an eraser) and tap,

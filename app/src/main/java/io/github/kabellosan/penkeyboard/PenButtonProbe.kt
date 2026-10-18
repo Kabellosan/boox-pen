@@ -181,6 +181,7 @@ class PenButtonProbe : AccessibilityService() {
             }
             Action.QUICK_PAD -> launch(Intent(this, LauncherActivity::class.java))
             Action.PEN_PAD -> launch(Intent(this, PenPadActivity::class.java))
+            Action.FULL_SCREEN -> if (PenIME.shown) PenIME.toggleFullScreen()
             Action.SEND -> pressEnter()
             Action.LANG -> Shortcuts.setLanguage(this, if (Shortcuts.language(this) == "da") "en" else "da")
             Action.DELETE_WORD -> {
@@ -257,6 +258,28 @@ class PenButtonProbe : AccessibilityService() {
         return n.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
     }
 
+    /**
+     * Taps the Send button of [pkg]'s screen (a chat app whose field has no Send
+     * action, so Enter only makes a new line). False if there is none to find.
+     */
+    fun clickSend(pkg: String?): Boolean {
+        val root = rootInActiveWindow ?: return false
+        if (pkg != null && root.packageName?.toString() != pkg) return false
+        val button = findSend(root) ?: return false
+        return button.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
+    private fun findSend(n: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val label = (n.contentDescription ?: n.text)?.toString()?.trim()?.lowercase()
+        if (label != null && label in SEND_LABELS && n.isVisibleToUser) {
+            var c: AccessibilityNodeInfo? = n
+            while (c != null && !c.isClickable) c = c.parent
+            if (c != null) return c
+        }
+        for (i in 0 until n.childCount) n.getChild(i)?.let { child -> findSend(child)?.let { return it } }
+        return null
+    }
+
     /** The field's text and selection, with the cursor at the end if unknown. */
     private fun fieldState(): Triple<String, Int, Int>? {
         val n = target ?: return null
@@ -284,6 +307,9 @@ class PenButtonProbe : AccessibilityService() {
 
         /** Apps where the eraser is for erasing (Boox Notes): their taps are left alone. */
         private val PEN_APPS = setOf("com.onyx.android.note")
+
+        /** What chat apps call their Send button, in English and Danish. */
+        private val SEND_LABELS = setOf("send", "send message", "send besked", "send meddelelse")
 
         private const val PREFS = "pen_button_probe"
         private const val LOG = "log"

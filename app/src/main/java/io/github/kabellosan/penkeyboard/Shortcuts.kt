@@ -27,6 +27,8 @@ data class Action(val code: String) {
         DELETE_WORD -> "Delete last word"
         BACK -> "Go back"
         PEN_PAD -> "Open Pen Pad"
+        FULL_SCREEN -> "Full-screen writing on/off"
+        NEW_LINE -> "New line"
         else -> app?.let { c ->
             val name = runCatching { pm.getActivityInfo(c, 0).loadLabel(pm).toString() }.getOrNull()
             "Open ${name ?: c.packageName}"
@@ -42,7 +44,9 @@ data class Action(val code: String) {
         val DELETE_WORD = Action("delete_word")
         val BACK = Action("back")
         val PEN_PAD = Action("pen_pad")
-        val BUILT_IN = listOf(NONE, SEND, LANG, QUICK_PAD, PEN_PAD, DELETE_WORD, BACK)
+        val FULL_SCREEN = Action("full_screen")
+        val NEW_LINE = Action("new_line")
+        val BUILT_IN = listOf(NONE, SEND, NEW_LINE, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, DELETE_WORD, BACK)
         fun openApp(c: ComponentName) = Action(APP + c.flattenToString())
 
         fun launchIntent(c: ComponentName): Intent = Intent(Intent.ACTION_MAIN)
@@ -58,6 +62,8 @@ enum class Trigger(val key: String, val label: String, val default: Action) {
     TRIPLE_TAP("triple_tap", "Tap three times", Action.LANG),
     LONG_PRESS("long_press", "Press and hold", Action.QUICK_PAD),
     SWIPE("swipe", "Swipe sideways", Action.DELETE_WORD),
+    LINE_DOWN("line_down", "Draw a line down", Action.NEW_LINE),
+    LINE_UP("line_up", "Draw a line up", Action.SEND),
 }
 
 /**
@@ -168,6 +174,7 @@ class Shortcuts(context: Context) {
     fun match(strokes: List<Stroke>, pm: PackageManager, layer: Layer = Layer.PEN): ShapeMatch? {
         matchGesture(strokes)?.let { (g, score) -> return ShapeMatch(g.action.label(pm), g.action, score) }
         if (isSwipe(strokes)) return ShapeMatch(Trigger.SWIPE.label, action(Trigger.SWIPE, layer), null)
+        line(strokes)?.let { return ShapeMatch(it.label, action(it, layer), null) }
         return null
     }
 
@@ -189,6 +196,26 @@ class Shortcuts(context: Context) {
                 .minOfOrNull { PointCloud.distance(cloud, it) }
                 ?.let { g to it }
         }.sortedBy { it.second }
+    }
+
+    /**
+     * One tall, narrow stroke: [Trigger.LINE_DOWN] or [Trigger.LINE_UP], by whether
+     * its last points lie below its first. Generous on purpose: only its outline
+     * counts (some firmware hands over a path with points repeated), it may lean,
+     * and about 8 mm is enough.
+     * Drawn with the button held, so over waiting ink it wins over rubbing out.
+     */
+    fun line(strokes: List<Stroke>): Trigger? {
+        val s = strokes.singleOrNull() ?: return null
+        if (s.size < 2) return null
+        val top = s.ys.min()
+        val bottom = s.ys.max()
+        val h = bottom - top
+        if (h < 50 * density || s.xs.max() - s.xs.min() > 0.6f * h) return null
+        val k = maxOf(1, s.size / 5)
+        val start = (0 until k).map { s.ys[it] }.average()
+        val end = (s.size - k until s.size).map { s.ys[it] }.average()
+        return if (end > start) Trigger.LINE_DOWN else Trigger.LINE_UP
     }
 
     /** One long, flat stroke: a sweep to the side. */

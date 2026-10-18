@@ -126,6 +126,11 @@ class PenPadActivity : Activity(), InkView.Listener {
 
     /** Button held: over waiting ink a sweep rubs it out; otherwise taps and shapes are shortcuts. */
     override fun onErase(path: Stroke, durationMs: Long) {
+        val line = if (buttonGestures.pending) null else shortcuts.line(listOf(path))
+        if (line != null) {
+            perform(shortcuts.action(line))
+            return
+        }
         if (ink.strokes.isNotEmpty() && !buttonGestures.pending && !buttonGestures.isStill(path)) {
             erase(path)
             return
@@ -162,6 +167,7 @@ class PenPadActivity : Activity(), InkView.Listener {
             }
             Action.BACK -> flushThen { finish() }
             Action.PEN_PAD -> {}
+            Action.NEW_LINE -> flushThen { insert("\n") }
             else -> action.app?.let { app ->
                 flushThen {
                     startActivity(Action.launchIntent(app))
