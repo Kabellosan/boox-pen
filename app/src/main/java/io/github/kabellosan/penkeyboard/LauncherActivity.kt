@@ -189,23 +189,24 @@ class LauncherActivity : Activity(), InkView.Listener {
     }
 
     /**
-     * Boox froze [app]. The helper can press Enable on its App info page and
-     * then open it; without the helper, the page opens for you to tap Enable.
+     * Boox froze [app]. The helper can switch it off in Boox's Freeze Settings
+     * and then open it; without the helper, that screen opens for you to do it.
      */
     private fun unfreeze(app: AppEntry) {
         val helper = PenButtonProbe.instance
         if (helper != null) {
-            helper.unfreezeAndOpen(app.component)
+            helper.unfreezeAndOpen(app.component, app.label)
             finish()
             return
         }
+        val screen = FrozenApps.freezeSettingsIntent(packageManager)
         try {
-            startActivity(FrozenApps.appInfoIntent(app.component.packageName))
-            Toast.makeText(this, "${app.label} is frozen: tap Enable, then write it again", Toast.LENGTH_LONG).show()
+            startActivity(screen ?: throw IllegalStateException("no Freeze Settings"))
+            Toast.makeText(this, "${app.label} is frozen: switch it off here, then write it again", Toast.LENGTH_LONG).show()
             finish()
         } catch (e: Exception) {
             choices.removeAllViews()
-            status.text = "Couldn't open ${app.label}: it's frozen in Boox, unfreeze it there"
+            status.text = "${app.label} is frozen: unfreeze it in Boox (long press it in Apps), or turn on Pen Keyboard helper"
         }
     }
 

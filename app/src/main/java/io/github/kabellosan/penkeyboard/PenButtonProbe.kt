@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -26,7 +25,7 @@ import java.util.Locale
  * - lets Pen Pad write into the text field you were using in another app;
  * - lets the Go back shortcut press Android's real Back button;
  * - turns eraser taps on any screen (outside the keyboard's strip) into shortcuts;
- * - unfreezes an app Boox froze when Pad Launch opens it, by pressing Enable on its App info page;
+ * - unfreezes an app Boox froze when Pad Launch opens it, with its toggle in Boox's Freeze Settings;
  * - probes whether the pen's side button sends anything the whole system can see.
  *
  * Text fields: it remembers the last editable field that got focus in another
@@ -200,54 +199,11 @@ class PenButtonProbe : AccessibilityService() {
 
     // ── Unfreezing apps Boox froze ──────────────────────────────────
 
-    private var unfreezing: ComponentName? = null
-    private var unfreezeUntil = 0L
-    private var lastPressAt = 0L
+    private val unfreezer by lazy { Unfreezer(this) }
 
-    /**
-     * Opens [app]'s App info page, presses its Enable button, and opens the app
-     * once Android says it's on again. If no button turns up in time, the page
-     * is left open for a tap by hand and what was on it goes to the key log.
-     */
-    fun unfreezeAndOpen(app: ComponentName) {
-        unfreezing = app
-        unfreezeUntil = SystemClock.uptimeMillis() + UNFREEZE_MS
-        lastPressAt = 0L
-        main.removeCallbacks(unfreezeStep)
-        launch(FrozenApps.appInfoIntent(app.packageName))
-        main.postDelayed(unfreezeStep, UNFREEZE_POLL_MS)
-    }
-
-    private val unfreezeStep = object : Runnable {
-        override fun run() {
-            val app = unfreezing ?: return
-            val now = SystemClock.uptimeMillis()
-            if (!FrozenApps.isFrozen(packageManager, app.packageName)) {
-                unfreezing = null
-                record(this@PenButtonProbe, "Unfroze ${app.packageName}")
-                try {
-                    startActivity(Action.launchIntent(app))
-                } catch (e: Exception) {
-                    packageManager.getLaunchIntentForPackage(app.packageName)?.let { launch(it) }
-                }
-                return
-            }
-            val root = rootInActiveWindow?.takeIf { it.packageName?.toString() != packageName }
-            if (now > unfreezeUntil) {
-                unfreezing = null
-                val seen = root?.let { FrozenApps.shortLabels(it).take(12).joinToString(", ") }.orEmpty()
-                record(this@PenButtonProbe, "Unfreeze ${app.packageName}: no Enable button (${root?.packageName}: $seen)")
-                return
-            }
-            // A press takes a moment to land; don't press again straight away.
-            if (root != null && now - lastPressAt > UNFREEZE_PRESS_GAP_MS) {
-                FrozenApps.findEnableButton(root)?.let {
-                    if (it.performAction(AccessibilityNodeInfo.ACTION_CLICK)) lastPressAt = now
-                }
-            }
-            main.postDelayed(this, UNFREEZE_POLL_MS)
-        }
-    }
+    /** Unfreezes [app] in Boox's Freeze Settings, then opens it. */
+    fun unfreezeAndOpen(app: ComponentName, label: String = FrozenApps.label(packageManager, app.packageName)) =
+        unfreezer.start(app, label)
 
     private fun launch(intent: Intent) = startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 
@@ -341,10 +297,6 @@ class PenButtonProbe : AccessibilityService() {
 
         /** Apps where the eraser is for erasing (Boox Notes): their taps are left alone. */
         private val PEN_APPS = setOf("com.onyx.android.note")
-
-        private const val UNFREEZE_MS = 12_000L
-        private const val UNFREEZE_POLL_MS = 300L
-        private const val UNFREEZE_PRESS_GAP_MS = 1_500L
 
         private const val PREFS = "pen_button_probe"
         private const val LOG = "log"
