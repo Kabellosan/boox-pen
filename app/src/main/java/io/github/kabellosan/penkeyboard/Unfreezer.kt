@@ -18,15 +18,17 @@ import android.view.accessibility.AccessibilityNodeInfo
  *
  * Goes Home, presses Apps, then looks for the app's name on screen, turning
  * pages (forward, then back once the last page stops changing) until it shows
- * up, and taps it. The tap is a real touch at the name, not an accessibility
+ * up, and taps its icon. The tap is a real touch, not an accessibility
  * "click": Boox's app grid ignores those (seen on the Go 7), and it also keeps
  * neighbouring pages' names in its layout, so only names visible on screen count.
+ * If the tap does nothing, it presses and holds the icon and picks Unfreeze
+ * from Boox's menu.
  * If the app isn't open and on again in time, every step and the last
  * screen's labels go to the key log.
  */
 class Unfreezer(private val service: AccessibilityService) {
 
-    private enum class Step { APPS_TAB, FIND }
+    private enum class Step { APPS_TAB, FIND, MENU }
 
     private val main = Handler(Looper.getMainLooper())
     private val pm get() = service.packageManager
@@ -38,6 +40,7 @@ class Unfreezer(private val service: AccessibilityService) {
     private var tapped = false
     private var tappedAt = 0L
     private var taps = 0
+    private var viaMenu = false
     private var forward = true
     private var pages = 0
     private var launcherPackage: String? = null
@@ -54,6 +57,7 @@ class Unfreezer(private val service: AccessibilityService) {
         step = Step.APPS_TAB
         tapped = false
         taps = 0
+        viaMenu = false
         forward = true
         pages = 0
         lastPage = ""
@@ -75,8 +79,8 @@ class Unfreezer(private val service: AccessibilityService) {
             val app = app ?: return
             if (!FrozenApps.isFrozen(pm, app.packageName)) {
                 finish("unfroze")
-                // Tapping it in Apps opens it too; only open it ourselves otherwise.
-                if (!tapped) try {
+                // Tapping it in Apps opens it too; Unfreeze in the menu doesn't.
+                if (!tapped || viaMenu) try {
                     service.startActivity(Action.launchIntent(app))
                 } catch (e: Exception) {}
                 return
@@ -105,19 +109,21 @@ class Unfreezer(private val service: AccessibilityService) {
                 settleUntil = now + SETTLE_MS
             }
             Step.FIND -> {
-                // Tapped: wait for Boox to unfreeze it. Tap once more only if the
-                // grid is still showing a while later, as a missed tap does nothing.
+                // Tapped: wait for Boox to unfreeze it. If the grid still shows a
+                // while later, the tap did nothing: press and hold for Boox's menu.
                 if (tapped && (now - tappedAt < RETAP_MS || taps >= 2 ||
                         root.packageName?.toString() != launcherPackage)) return
-                val icon = find(root) { !it.isEditable && it.isVisibleToUser && namesApp(it) }
-                if (icon != null) {
-                    val r = Rect().also { icon.getBoundsInScreen(it) }
-                    if (!r.isEmpty && tap(r.exactCenterX(), r.exactCenterY())) {
+                val name = find(root) { !it.isEditable && it.isVisibleToUser && namesApp(it) }
+                if (name != null) {
+                    val (x, y) = iconSpot(name)
+                    val hold = taps > 0
+                    if (touch(x, y, if (hold) HOLD_MS else TAP_MS, if (hold) "held" else "tapped")) {
                         tapped = true
                         tappedAt = now
                         taps++
                         launcherPackage = root.packageName?.toString()
-                        note("tapped $label at ${r.centerX()},${r.centerY()}")
+                        note("${if (hold) "held" else "tapped"} $label at ${x.toInt()},${y.toInt()}")
+                        if (hold) { step = Step.MENU; settleUntil = now + SETTLE_MS + HOLD_MS }
                     }
                     return
                 }
@@ -134,7 +140,43 @@ class Unfreezer(private val service: AccessibilityService) {
                 turnPage(root)
                 settleUntil = now + SETTLE_MS
             }
+            // Boox's press-and-hold menu: Uninstall, Manage, Optimize, Unfreeze, Add to Group.
+            Step.MENU -> {
+                // The menu may be a popup window of its own, not the active one.
+                val roots = listOf(root) + service.windows.mapNotNull { it.root }
+                val item = roots.firstNotNullOfOrNull { w -> find(w) { it.isVisibleToUser && textIs(it, "Unfreeze") } }
+                if (item == null) {
+                    if (now - tappedAt > MENU_WAIT_MS) { note("no Unfreeze in the menu"); step = Step.FIND; taps = 2 }
+                    return
+                }
+                val r = Rect().also { item.getBoundsInScreen(it) }
+                if (touch(r.exactCenterX(), r.exactCenterY(), TAP_MS, "Unfreeze")) {
+                    note("tapped Unfreeze")
+                    viaMenu = true
+                }
+                step = Step.FIND
+                taps = 2 // no more tries; wait for Boox
+                tappedAt = now
+            }
         }
+    }
+
+    /**
+     * Where to touch the app: its icon, just above the name. Touches on the
+     * name itself did nothing in Boox's grid (Go 7).
+     */
+    private fun iconSpot(name: AccessibilityNodeInfo): Pair<Float, Float> {
+        val r = Rect().also { name.getBoundsInScreen(it) }
+        val parent = name.parent
+        if (parent != null) for (i in 0 until parent.childCount) {
+            val c = parent.getChild(i) ?: continue
+            if (!c.text.isNullOrEmpty()) continue
+            val b = Rect().also { c.getBoundsInScreen(it) }
+            if (!b.isEmpty && b.bottom <= r.top + 4 && b.contains(r.centerX(), b.centerY())) {
+                return b.exactCenterX() to b.exactCenterY()
+            }
+        }
+        return r.exactCenterX() to (r.top - ICON_ABOVE_DP * service.resources.displayMetrics.density)
     }
 
     /** Scrolls the app grid a page, or swipes across the screen if it can't be scrolled. */
@@ -155,11 +197,14 @@ class Unfreezer(private val service: AccessibilityService) {
         note(if (forward) "swiped to next page" else "swiped to previous page")
     }
 
-    /** A real touch at ([x], [y]) on screen. */
-    private fun tap(x: Float, y: Float): Boolean {
+    /** A real touch at ([x], [y]) on screen for [ms]; a cancelled one is noted as [what]. */
+    private fun touch(x: Float, y: Float, ms: Long, what: String): Boolean {
         val path = Path().apply { moveTo(x, y) }
         return service.dispatchGesture(GestureDescription.Builder()
-            .addStroke(GestureDescription.StrokeDescription(path, 0, TAP_MS)).build(), null, null)
+            .addStroke(GestureDescription.StrokeDescription(path, 0, ms)).build(),
+            object : AccessibilityService.GestureResultCallback() {
+                override fun onCancelled(gestureDescription: GestureDescription?) { note("$what was cancelled") }
+            }, null)
     }
 
     /** Matches the app's name, also when the launcher cut a long one short ("Wheel of Time Compendium (Unoffic…"). */
@@ -185,7 +230,10 @@ class Unfreezer(private val service: AccessibilityService) {
         private const val POLL_MS = 300L
         private const val SETTLE_MS = 1_000L
         private const val SWIPE_MS = 250L
-        private const val TAP_MS = 60L
+        private const val TAP_MS = 80L
+        private const val HOLD_MS = 900L
+        private const val MENU_WAIT_MS = 4_000L
+        private const val ICON_ABOVE_DP = 40
         private const val RETAP_MS = 4_000L
         private const val MAX_PAGES = 12
 
