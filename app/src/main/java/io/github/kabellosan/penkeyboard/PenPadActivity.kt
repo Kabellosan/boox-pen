@@ -169,6 +169,7 @@ class PenPadActivity : Activity(), InkView.Listener {
             Action.PEN_PAD -> {}
             Action.NEW_LINE -> flushThen { insert("\n") }
             Action.HIDE_KEYBOARD -> flushThen { finish() }
+            Action.QUICK_NOTE -> flushThen { BooxTools.openQuickNote(this); finish() }
             Action.UNDO -> status.text = "Undo works in the keyboard, not in Pen Pad"
             in Action.FIELD -> flushThen {
                 lastInserted = null

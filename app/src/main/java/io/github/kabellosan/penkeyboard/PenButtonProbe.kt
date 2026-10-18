@@ -186,6 +186,7 @@ class PenButtonProbe : AccessibilityService() {
             Action.FULL_SCREEN -> if (PenIME.shown) PenIME.toggleFullScreen()
             Action.SEND -> pressEnter()
             Action.HIDE_KEYBOARD -> PenIME.instance?.requestHideSelf(0)
+            Action.QUICK_NOTE -> BooxTools.openQuickNote(this)
             in Action.FIELD -> if (PenIME.shown) PenIME.runFieldAction(action) else fieldAction(action)
             in Action.GLOBAL -> globalAction(action)
             Action.LANG -> Shortcuts.setLanguage(this, if (Shortcuts.language(this) == "da") "en" else "da")

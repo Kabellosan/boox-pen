@@ -249,12 +249,13 @@ class PenIME : InputMethodService(), InkView.Listener {
     }
 
     /**
-     * Page buttons. Every press is swallowed so the volume doesn't change, and
+     * Page buttons, when a shortcut uses them (else they do what Boox set them to).
+     * Every press is then swallowed so the volume doesn't change, and
      * counts toward a press or double press. Boox sends a press only when the
      * button is let go, so how long it was held can't be told.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
-        val button = pageButton(keyCode) ?: return super.onKeyDown(keyCode, event)
+        val button = pageButton(keyCode)?.takeIf(shortcuts::usesPageButton) ?: return super.onKeyDown(keyCode, event)
         if (event.repeatCount > 0) return true
         PenButtonProbe.record(this, "Keyboard got ${KeyEvent.keyCodeToString(keyCode)}" +
             if (isInputViewShown) " (keyboard open)" else " (keyboard hidden)")
@@ -267,7 +268,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        val button = pageButton(keyCode) ?: return super.onKeyUp(keyCode, event)
+        val button = pageButton(keyCode)?.takeIf(shortcuts::usesPageButton) ?: return super.onKeyUp(keyCode, event)
         PenButtonProbe.record(this, "  up, press ${pressCount + 1}")
         if (pageTaps(button, event)) return true
         countPress(button)
@@ -405,6 +406,7 @@ class PenIME : InputMethodService(), InkView.Listener {
                 if (hasView && ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()
             }
             Action.HIDE_KEYBOARD -> flushThen { requestHideSelf(0) }
+            Action.QUICK_NOTE -> flushThen { BooxTools.openQuickNote(this) }
             in Action.FIELD -> flushThen { fieldAction(action) }
             in Action.GLOBAL -> flushThen {
                 if (PenButtonProbe.instance?.globalAction(action) != true) {

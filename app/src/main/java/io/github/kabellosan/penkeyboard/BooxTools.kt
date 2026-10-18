@@ -68,6 +68,23 @@ object BooxTools {
         return tools.distinctBy { it.code }.sortedBy { it.label.lowercase() }
     }
 
+    /** Boox's "new quick note" screen, the one the smart button's Quick Notes opens. */
+    fun openQuickNote(context: Context): Boolean {
+        quickNote?.let { return run(context, it) }
+        val tools = find(context).filter { it.kind == "activity" }
+        val name = { t: Tool -> t.component.className.substringAfterLast('.') }
+        val tool = tools.firstOrNull { name(it).contains(Regex("(?i)quick.?note.*creat|creat.*quick.?note")) }
+            ?: tools.firstOrNull { name(it).contains(Regex("(?i)quick.?note")) }
+        if (tool == null) {
+            PenButtonProbe.record(context, "Boox Quick Note: not found on this device")
+            return false
+        }
+        return run(context, Action(tool.code).also { quickNote = it })
+    }
+
+    /** Found once per start: looking through Boox's apps takes a moment. */
+    private var quickNote: Action? = null
+
     /** Starts [action]'s tool. Says what happened in the key log; false if Android refused. */
     fun run(context: Context, action: Action): Boolean {
         val tool = parse(action) ?: return false
