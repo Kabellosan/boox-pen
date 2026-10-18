@@ -5,6 +5,7 @@ import android.accessibilityservice.GestureDescription
 import android.content.ComponentName
 import android.content.Intent
 import android.graphics.Path
+import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -15,10 +16,13 @@ import android.view.accessibility.AccessibilityNodeInfo
  * a frozen app unfreezes and opens it (the launcher is a system app, so it may).
  * Run by the helper, which can read and press what's on screen.
  *
- * Goes Home, presses Apps, then looks for the app's name, turning pages
- * (forward, then back once the last page stops changing) until it shows up,
- * and taps it once. If the app isn't open and on again in time, every step
- * and the last screen's labels go to the key log.
+ * Goes Home, presses Apps, then looks for the app's name on screen, turning
+ * pages (forward, then back once the last page stops changing) until it shows
+ * up, and taps it. The tap is a real touch at the name, not an accessibility
+ * "click": Boox's app grid ignores those (seen on the Go 7), and it also keeps
+ * neighbouring pages' names in its layout, so only names visible on screen count.
+ * If the app isn't open and on again in time, every step and the last
+ * screen's labels go to the key log.
  */
 class Unfreezer(private val service: AccessibilityService) {
 
@@ -32,8 +36,11 @@ class Unfreezer(private val service: AccessibilityService) {
     private var until = 0L
     private var settleUntil = 0L
     private var tapped = false
+    private var tappedAt = 0L
+    private var taps = 0
     private var forward = true
     private var pages = 0
+    private var launcherPackage: String? = null
     private var lastPage = ""
     private var lastLabels = ""
     private val trail = ArrayList<String>()
@@ -46,6 +53,7 @@ class Unfreezer(private val service: AccessibilityService) {
         until = now + TIMEOUT_MS
         step = Step.APPS_TAB
         tapped = false
+        taps = 0
         forward = true
         pages = 0
         lastPage = ""
@@ -80,7 +88,7 @@ class Unfreezer(private val service: AccessibilityService) {
             }
             val root = service.rootInActiveWindow?.takeIf { it.packageName?.toString() != service.packageName }
             if (root != null) {
-                lastLabels = "${root.packageName}: " + shortLabels(root).take(16).joinToString(", ")
+                lastLabels = "${root.packageName}: " + shortLabels(root, visibleOnly = true).take(16).joinToString(", ")
                 if (now >= settleUntil) act(root, now)
             }
             main.postDelayed(this, POLL_MS)
@@ -97,16 +105,23 @@ class Unfreezer(private val service: AccessibilityService) {
                 settleUntil = now + SETTLE_MS
             }
             Step.FIND -> {
-                if (tapped) return // tapped once; waiting for Boox to unfreeze it
-                val icon = find(root) { !it.isEditable && namesApp(it) }
+                // Tapped: wait for Boox to unfreeze it. Tap once more only if the
+                // grid is still showing a while later, as a missed tap does nothing.
+                if (tapped && (now - tappedAt < RETAP_MS || taps >= 2 ||
+                        root.packageName?.toString() != launcherPackage)) return
+                val icon = find(root) { !it.isEditable && it.isVisibleToUser && namesApp(it) }
                 if (icon != null) {
-                    if (click(icon)) {
-                        note("tapped $label")
+                    val r = Rect().also { icon.getBoundsInScreen(it) }
+                    if (!r.isEmpty && tap(r.exactCenterX(), r.exactCenterY())) {
                         tapped = true
+                        tappedAt = now
+                        taps++
+                        launcherPackage = root.packageName?.toString()
+                        note("tapped $label at ${r.centerX()},${r.centerY()}")
                     }
                     return
                 }
-                val page = shortLabels(root).joinToString("|")
+                val page = shortLabels(root, visibleOnly = true).joinToString("|")
                 if (pages > 0 && page == lastPage) {
                     // The page didn't change: that was the last one this way.
                     if (!forward) return
@@ -140,6 +155,13 @@ class Unfreezer(private val service: AccessibilityService) {
         note(if (forward) "swiped to next page" else "swiped to previous page")
     }
 
+    /** A real touch at ([x], [y]) on screen. */
+    private fun tap(x: Float, y: Float): Boolean {
+        val path = Path().apply { moveTo(x, y) }
+        return service.dispatchGesture(GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(path, 0, TAP_MS)).build(), null, null)
+    }
+
     /** Matches the app's name, also when the launcher cut a long one short ("Wheel of Time Compendium (Unoffic…"). */
     private fun namesApp(n: AccessibilityNodeInfo): Boolean {
         val t = n.text?.toString()?.trim() ?: return false
@@ -163,6 +185,8 @@ class Unfreezer(private val service: AccessibilityService) {
         private const val POLL_MS = 300L
         private const val SETTLE_MS = 1_000L
         private const val SWIPE_MS = 250L
+        private const val TAP_MS = 60L
+        private const val RETAP_MS = 4_000L
         private const val MAX_PAGES = 12
 
         private fun textIs(n: AccessibilityNodeInfo, s: String) =
@@ -186,10 +210,14 @@ class Unfreezer(private val service: AccessibilityService) {
         }
 
         /** Short labels on screen (app names and buttons, mostly). */
-        fun shortLabels(root: AccessibilityNodeInfo, out: MutableList<String> = ArrayList()): List<String> {
-            (root.text ?: root.contentDescription)?.toString()?.trim()
+        fun shortLabels(
+            root: AccessibilityNodeInfo,
+            visibleOnly: Boolean = false,
+            out: MutableList<String> = ArrayList(),
+        ): List<String> {
+            if (!visibleOnly || root.isVisibleToUser) (root.text ?: root.contentDescription)?.toString()?.trim()
                 ?.takeIf { it.isNotEmpty() && it.length <= 40 }?.let { out += it }
-            for (i in 0 until root.childCount) root.getChild(i)?.let { shortLabels(it, out) }
+            for (i in 0 until root.childCount) root.getChild(i)?.let { shortLabels(it, visibleOnly, out) }
             return out
         }
     }
