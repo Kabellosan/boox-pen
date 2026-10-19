@@ -143,7 +143,12 @@ class PenIME : InputMethodService(), InkView.Listener {
         keys.addView(key("⌨") { switchKeyboard() }, weight(1f))
         fullKey = key("Full") { setFullScreen(!fullScreen) }
         keys.addView(fullKey, weight(1.2f))
-        keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(2f))
+        // Comma on a tap, period on a long press: no need to write the tiny marks.
+        val commaKey = key(",") { commitMark(",") }
+        commaKey.textSize = 28f
+        commaKey.setOnLongClickListener { commitMark("."); true }
+        keys.addView(commaKey, weight(1f))
+        keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(1.6f))
         keys.addView(deleteKey(), weight(2.5f))
         enterKey = key("⏎") { flushThen { enter() } }
         enterKey.setOnLongClickListener { flushThen { commit("\n", remember = false) }; true }
@@ -415,6 +420,8 @@ class PenIME : InputMethodService(), InkView.Listener {
             Action.LANG -> toggleLanguage()
             Action.FULL_SCREEN -> setFullScreen(!fullScreen)
             Action.NEW_LINE -> flushThen { newLine() }
+            Action.COMMA -> commitMark(",")
+            Action.PERIOD -> commitMark(".")
             Action.QUICK_PAD -> openLauncher()
             Action.BACK -> flushThen { goBack() }
             Action.PEN_PAD -> flushThen {
@@ -486,19 +493,41 @@ class PenIME : InputMethodService(), InkView.Listener {
         val h = ink.height.toFloat()
         ink.clear()
 
+
         val results = HashMap<String, List<String>>()
         for (lang in recognizer.languages) {
             recognizer.recognize(lang, strokes, w, h, pre) { candidates ->
                 results[lang] = candidates
                 if (results.size == recognizer.languages.size) {
-                    val best = results[activeLang]?.firstOrNull()
+                    val read = results[activeLang]?.firstOrNull()
                         ?: results.values.firstNotNullOfOrNull { it.firstOrNull() }
+                    // A lone tick, dot or slash is a comma or period, not whatever ML Kit guessed.
+                    val best = Punctuation.pick(strokes, wordHeight, read)
+                    // Short reads go in the key log, so a misread mark can be traced.
+                    if (read != null && read.trim().length <= 2) {
+                        val codes = read.map { "U+%04X".format(it.code) }.joinToString(" ")
+                        PenButtonProbe.record(this, "Ink: ${strokes.size} stroke(s), read \"$read\" ($codes), typed \"$best\"")
+                    }
                     if (best != null) commitWord(best, pre)
-                    showCandidates(results)
+                    if (best == read && read != null && read.count { it.isLetter() } >= 2) learnWordHeight(strokes)
+                    showCandidates(results, Punctuation.markChoices(best), best)
                     then?.invoke()
                 }
             }
         }
+    }
+
+    /**
+     * How tall the user writes a word, in strip pixels, so a comma can be told by
+     * being much smaller. Follows the last few words.
+     */
+    private var wordHeight = 0f
+        get() = if (field > 0f) field else 50 * resources.displayMetrics.density
+
+    private fun learnWordHeight(strokes: List<Stroke>) {
+        val dp = resources.displayMetrics.density
+        val h = Punctuation.height(strokes).coerceIn(20 * dp, 200 * dp)
+        wordHeight = 0.7f * wordHeight + 0.3f * h
     }
 
     /** If ink is waiting, turn it into text first, then run [action]. */
@@ -509,15 +538,20 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     // ── Text output ─────────────────────────────────────────────────
 
-    /** Commits a recognized word with a trailing space, adding a leading one if needed. */
+    /**
+     * Commits a recognized word with a trailing space, adding a leading one if needed.
+     * Punctuation sticks to the previous word: the space after it goes first.
+     */
     private fun commitWord(word: String, pre: String) {
-        val needsLead = pre.isNotEmpty() && !pre.last().isWhitespace() && !word.first().isPunct()
-        val lead = if (needsLead) " " else ""
-        // Punctuation sticks to the previous word: drop our own trailing space first.
-        if (word.first().isPunct() && lastCommitted?.endsWith(" ") == true) {
-            currentInputConnection?.deleteSurroundingText(1, 0)
-        }
-        commit("$lead$word ", remember = true)
+        val (drop, text) = Punctuation.place(pre, word)
+        if (text.isEmpty()) return
+        if (drop > 0) currentInputConnection?.deleteSurroundingText(drop, 0)
+        commit(text, remember = true)
+    }
+
+    /** A comma or period from the key or a shortcut, after any waiting ink. */
+    private fun commitMark(mark: String) = flushThen {
+        commitWord(mark, currentInputConnection?.getTextBeforeCursor(20, 0)?.toString() ?: "")
     }
 
     private fun commit(text: String, remember: Boolean) {
@@ -531,11 +565,20 @@ class PenIME : InputMethodService(), InkView.Listener {
         val last = lastCommitted
         if (last != null && ic.getTextBeforeCursor(last.length, 0)?.toString() == last) {
             ic.deleteSurroundingText(last.length, 0)
-            val lead = if (last.startsWith(" ")) " " else ""
-            commit("$lead$word ", remember = true)
+            commitWord(word, ic.getTextBeforeCursor(20, 0)?.toString() ?: "")
         } else {
             commit("$word ", remember = true)
         }
+    }
+
+    /** Takes out the space between the word just written and the word before it. */
+    private fun joinLast() {
+        val ic = currentInputConnection ?: return
+        val last = lastCommitted ?: return
+        val before = ic.getTextBeforeCursor(last.length + 8, 0)?.toString() ?: return
+        val (drop, text) = Punctuation.join(before, last) ?: return
+        ic.deleteSurroundingText(drop, 0)
+        commit(text, remember = true)
     }
 
     private fun backspace() {
@@ -668,16 +711,28 @@ class PenIME : InputMethodService(), InkView.Listener {
         }, LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
     }
 
-    /** Shows the active language's guesses first, then the other language's. */
-    private fun showCandidates(results: Map<String, List<String>>) {
+    /**
+     * Shows [marks] (a lone small mark's readings) first, then the active language's
+     * guesses, then the other language's. The one typed, [best], is bold.
+     */
+    private fun showCandidates(results: Map<String, List<String>>, marks: List<String> = emptyList(), best: String? = null) {
         candidateRow.removeAllViews()
         val ordered = listOf(activeLang) + recognizer.languages.filter { it != activeLang }
         val seen = HashSet<String>()
+        // Letters written to finish a misread word: one tap glues them onto it.
+        if (marks.isEmpty() && best?.firstOrNull()?.isLetter() == true) {
+            candidateRow.addView(key(Punctuation.JOIN) { joinLast() }, LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        }
+        for (m in marks) {
+            if (!seen.add(m)) continue
+            candidateRow.addView(key(m, bold = m == best) { replaceLast(m) }.apply { textSize = 28f },
+                LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        }
         for (lang in ordered) {
-            for ((i, c) in (results[lang] ?: emptyList()).take(4).withIndex()) {
+            for (c in (results[lang] ?: emptyList()).take(4)) {
                 if (!seen.add(c)) continue
                 val label = if (lang == activeLang) c else "$c·${lang}"
-                candidateRow.addView(key(label, bold = lang == activeLang && i == 0) { replaceLast(c) },
+                candidateRow.addView(key(label, bold = lang == activeLang && c == best) { replaceLast(c) },
                     LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
             }
         }
@@ -697,8 +752,6 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     private fun weight(w: Float) = LinearLayout.LayoutParams(0, MATCH_PARENT, w)
 
-    private fun Char.isPunct() = this in ".,!?;:)"
-
     companion object {
         /** True while the writing strip is on screen; eraser taps on it are its own. */
         var shown = false
@@ -710,6 +763,9 @@ class PenIME : InputMethodService(), InkView.Listener {
 
         /** Full screen on or off, for a shortcut run by the helper. */
         fun toggleFullScreen() = instance?.let { it.setFullScreen(!it.fullScreen) }
+
+        /** A comma or period for a shortcut run by the helper, while the keyboard is open. */
+        fun typeMark(mark: String) = instance?.commitMark(mark)
 
         /** A text-field action for a shortcut run by the helper, while the keyboard is open. */
         fun runFieldAction(action: Action) = instance?.fieldAction(action)

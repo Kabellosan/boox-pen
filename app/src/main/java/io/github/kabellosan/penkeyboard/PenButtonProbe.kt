@@ -193,6 +193,11 @@ class PenButtonProbe : AccessibilityService() {
             Action.FULL_SCREEN -> if (PenIME.shown) PenIME.toggleFullScreen()
             Action.SEND -> pressEnter()
             Action.HIDE_KEYBOARD -> PenIME.instance?.requestHideSelf(0)
+            Action.COMMA, Action.PERIOD -> {
+                val mark = if (action == Action.COMMA) "," else "."
+                if (PenIME.shown) PenIME.typeMark(mark)
+                else Punctuation.place(textBeforeCursor(20), mark).let { (drop, text) -> edit(drop, text) }
+            }
             Action.QUICK_NOTE -> BooxTools.openQuickNote(this)
             in Action.FIELD -> if (PenIME.shown) PenIME.runFieldAction(action) else fieldAction(action)
             in Action.GLOBAL -> globalAction(action)
