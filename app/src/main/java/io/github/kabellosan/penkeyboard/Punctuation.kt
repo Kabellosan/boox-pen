@@ -17,10 +17,18 @@ object Punctuation {
         ")", "(", "-", "_", ";", ":", "!", "\"", "„", "”", "7", "°", "^", "~", "¸",
     )
 
-    /** Lone marks ML Kit reads that are almost always a comma when written on their own. */
-    private val commaLike = setOf(
-        ",", "'", "’", "‘", "`", "´", "‚", "/", "\\", "|", ")", "(", ";", "\"", "„", "”", "°", "^", "~", "¸",
-    )
+    /** Lone marks that are meant as themselves; any other lone non-letter is a comma. */
+    private val keep = setOf('.', '!', '?', ':', ';', '-', '–', '—', '&', '@', '#', '%', '+', '=', '*', '"', '(', ')')
+
+    /**
+     * True if [read] is one mark ML Kit made of a lone comma: any apostrophe, quote
+     * mark, accent, slash or tick (ML Kit has many look-alikes), but not a letter,
+     * digit, or a mark from [keep].
+     */
+    private fun commaLike(read: String): Boolean {
+        val t = read.trim()
+        return t.length == 1 && !t[0].isLetterOrDigit() && t[0] !in keep
+    }
 
     /**
      * Reads [strokes] as a lone comma or period if it is one: a single stroke much
@@ -41,13 +49,13 @@ object Punctuation {
     /**
      * What to type for [strokes], given ML Kit's best guess [read]. A lone small mark
      * is a comma (or a period, if a dot) unless ML Kit saw a real letter in it, and a
-     * lone stroke ML Kit reads as a slash, apostrophe or the like is a comma too:
+     * lone mark ML Kit reads as a slash, apostrophe or the like is a comma too:
      * those are rare on their own, commas are everywhere.
      */
     fun pick(strokes: List<Stroke>, wordHeight: Float, read: String?): String? {
         val mark = loneMark(strokes, wordHeight)
         if (mark != null && (read == null || read.trim() in confusable)) return mark
-        if (strokes.size == 1 && read != null && read.trim() in commaLike) return ","
+        if (read != null && commaLike(read)) return ","
         return read
     }
 
