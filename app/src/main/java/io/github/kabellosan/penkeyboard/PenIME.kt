@@ -503,6 +503,11 @@ class PenIME : InputMethodService(), InkView.Listener {
                         ?: results.values.firstNotNullOfOrNull { it.firstOrNull() }
                     // A lone tick, dot or slash is a comma or period, not whatever ML Kit guessed.
                     val best = Punctuation.pick(strokes, wordHeight, read)
+                    // Short reads go in the key log, so a misread mark can be traced.
+                    if (read != null && read.trim().length <= 2) {
+                        val codes = read.map { "U+%04X".format(it.code) }.joinToString(" ")
+                        PenButtonProbe.record(this, "Ink: ${strokes.size} stroke(s), read \"$read\" ($codes), typed \"$best\"")
+                    }
                     if (best != null) commitWord(best, pre)
                     if (best == read && read != null && read.count { it.isLetter() } >= 2) learnWordHeight(strokes)
                     showCandidates(results, Punctuation.markChoices(best), best)
