@@ -46,6 +46,9 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     /** See-through: no white page or baseline, so the app underneath shows (Pen Pad). */
     var transparent = false
 
+    /** The line to write on, in view pixels; none when see-through. */
+    val baselineY: Float? get() = if (transparent) null else height * 0.7f
+
     /**
      * Set while the ink covers the whole screen: a finger tap anywhere on it runs
      * this (leaves full screen). The pen still writes.
@@ -341,7 +344,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
             val half = frame.strokeWidth / 2
             val box = RectF(frameInset + half, frameInset + half, width - frameInset - half, height - frameInset - half)
             canvas.drawRoundRect(box, frameRadius, frameRadius, frame)
-            val y = height * 0.7f
+            val y = baselineY ?: 0f
             val margin = frameInset + 12 * resources.displayMetrics.density
             canvas.drawLine(margin, y, width - margin, y, baseline)
         }

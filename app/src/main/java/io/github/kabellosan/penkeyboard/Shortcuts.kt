@@ -29,6 +29,8 @@ data class Action(val code: String) {
         PEN_PAD -> "Open Pen Pad"
         FULL_SCREEN -> "Full-screen writing on/off"
         NEW_LINE -> "New line"
+        COMMA -> "Type a comma"
+        PERIOD -> "Type a period"
         HIDE_KEYBOARD -> "Hide the keyboard"
         UNDO -> "Undo"
         CURSOR_START -> "Cursor to the start"
@@ -61,6 +63,8 @@ data class Action(val code: String) {
         val PEN_PAD = Action("pen_pad")
         val FULL_SCREEN = Action("full_screen")
         val NEW_LINE = Action("new_line")
+        val COMMA = Action("comma")
+        val PERIOD = Action("period")
         val HIDE_KEYBOARD = Action("hide_keyboard")
         val UNDO = Action("undo")
         val CURSOR_START = Action("cursor_start")
@@ -77,7 +81,7 @@ data class Action(val code: String) {
         val SCROLL_UP = Action("scroll_up")
         val SCROLL_DOWN = Action("scroll_down")
         val BUILT_IN = listOf(
-            NONE, SEND, NEW_LINE, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, HIDE_KEYBOARD,
+            NONE, SEND, NEW_LINE, COMMA, PERIOD, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, HIDE_KEYBOARD,
             DELETE_WORD, UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE,
             BACK, HOME, RECENTS, NOTIFICATIONS, SCREENSHOT, QUICK_NOTE,
             PEN_SCROLL, SCROLL_UP, SCROLL_DOWN,

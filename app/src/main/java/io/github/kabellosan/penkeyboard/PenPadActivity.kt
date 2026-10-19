@@ -168,6 +168,8 @@ class PenPadActivity : Activity(), InkView.Listener {
             Action.BACK -> flushThen { finish() }
             Action.PEN_PAD -> {}
             Action.NEW_LINE -> flushThen { insert("\n") }
+            Action.COMMA -> flushThen { insertWord(",", helper?.textBeforeCursor(20).orEmpty()) }
+            Action.PERIOD -> flushThen { insertWord(".", helper?.textBeforeCursor(20).orEmpty()) }
             Action.HIDE_KEYBOARD -> flushThen { finish() }
             Action.QUICK_NOTE -> flushThen { BooxTools.openQuickNote(this); finish() }
             Action.UNDO -> status.text = "Undo works in the keyboard, not in Pen Pad"
@@ -199,19 +201,34 @@ class PenPadActivity : Activity(), InkView.Listener {
         val h = ink.height.toFloat()
         ink.clear()
 
+        // A lone comma or period is read from its size, not by ML Kit (see Punctuation).
+        val mark = Punctuation.loneMark(strokes, wordHeight, ink.baselineY)
+
         val results = HashMap<String, List<String>>()
         for (lang in recognizer.languages) {
             recognizer.recognize(lang, strokes, w, h, pre) { candidates ->
                 results[lang] = candidates
                 if (results.size == recognizer.languages.size) {
-                    val best = results[activeLang]?.firstOrNull()
+                    val read = results[activeLang]?.firstOrNull()
                         ?: results.values.firstNotNullOfOrNull { it.firstOrNull() }
+                    val best = if (mark != null && Punctuation.mayOverride(read)) mark else read
                     if (best != null) insertWord(best, pre)
-                    showCandidates(results)
+                    if (best == read && read != null && read.count { it.isLetter() } >= 2) learnWordHeight(strokes)
+                    showCandidates(results, if (mark != null) listOf(mark, ",", ".") else emptyList())
                     then?.invoke()
                 }
             }
         }
+    }
+
+    /** How tall the user writes a word, in pad pixels, so a comma can be told by being much smaller. */
+    private var wordHeight = 0f
+        get() = if (field > 0f) field else 50 * resources.displayMetrics.density
+
+    private fun learnWordHeight(strokes: List<Stroke>) {
+        val dp = resources.displayMetrics.density
+        val h = Punctuation.height(strokes).coerceIn(20 * dp, 200 * dp)
+        wordHeight = 0.7f * wordHeight + 0.3f * h
     }
 
     private fun flushThen(action: () -> Unit) {
@@ -221,9 +238,8 @@ class PenPadActivity : Activity(), InkView.Listener {
 
     /** Same spacing as the keyboard: a space after each word, punctuation sticks to the word before. */
     private fun insertWord(word: String, pre: String) {
-        val needsLead = pre.isNotEmpty() && !pre.last().isWhitespace() && !word.first().isPunct()
-        val dropOwnSpace = word.first().isPunct() && lastInserted?.endsWith(" ") == true && pre.endsWith(" ")
-        edit(if (dropOwnSpace) 1 else 0, (if (needsLead) " " else "") + word + " ", remember = true)
+        val (drop, text) = Punctuation.place(pre, word)
+        if (text.isNotEmpty()) edit(drop, text, remember = true)
     }
 
     private fun insert(text: String) = edit(0, text, remember = false)
@@ -243,8 +259,9 @@ class PenPadActivity : Activity(), InkView.Listener {
     private fun replaceLast(word: String) {
         val last = lastInserted
         if (last != null && helper?.textBeforeCursor(last.length) == last) {
-            val lead = if (last.startsWith(" ")) " " else ""
-            edit(last.length, "$lead$word ", remember = true)
+            val pre = helper?.textBeforeCursor(20 + last.length).orEmpty().dropLast(last.length)
+            val (drop, text) = Punctuation.place(pre, word)
+            edit(last.length + drop, text, remember = true)
         } else {
             edit(0, "$word ", remember = true)
         }
@@ -282,10 +299,13 @@ class PenPadActivity : Activity(), InkView.Listener {
 
     // ── UI helpers ──────────────────────────────────────────────────
 
-    private fun showCandidates(results: Map<String, List<String>>) {
+    private fun showCandidates(results: Map<String, List<String>>, marks: List<String> = emptyList()) {
         candidateRow.removeAllViews()
         val ordered = listOf(activeLang) + recognizer.languages.filter { it != activeLang }
         val seen = HashSet<String>()
+        for (m in marks) {
+            if (seen.add(m)) candidateRow.addView(key(m) { replaceLast(m) }, LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        }
         for (lang in ordered) {
             for (c in (results[lang] ?: emptyList()).take(4)) {
                 if (!seen.add(c)) continue
@@ -307,6 +327,4 @@ class PenPadActivity : Activity(), InkView.Listener {
     }
 
     private fun weight(w: Float) = LinearLayout.LayoutParams(0, MATCH_PARENT, w)
-
-    private fun Char.isPunct() = this in ".,!?;:)"
 }
