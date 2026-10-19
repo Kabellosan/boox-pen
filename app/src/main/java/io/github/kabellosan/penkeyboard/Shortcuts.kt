@@ -41,6 +41,9 @@ data class Action(val code: String) {
         NOTIFICATIONS -> "Notifications"
         SCREENSHOT -> "Screenshot"
         QUICK_NOTE -> "Boox Quick Note"
+        PEN_SCROLL -> "Pen scroll on/off"
+        SCROLL_UP -> "Scroll up"
+        SCROLL_DOWN -> "Scroll down"
         else -> if (BooxTools.isTool(this)) BooxTools.label(this) else app?.let { c ->
             val name = runCatching { pm.getActivityInfo(c, 0).loadLabel(pm).toString() }.getOrNull()
             "Open ${name ?: c.packageName}"
@@ -70,17 +73,21 @@ data class Action(val code: String) {
         val NOTIFICATIONS = Action("notifications")
         val SCREENSHOT = Action("screenshot")
         val QUICK_NOTE = Action("quick_note")
+        val PEN_SCROLL = Action("pen_scroll")
+        val SCROLL_UP = Action("scroll_up")
+        val SCROLL_DOWN = Action("scroll_down")
         val BUILT_IN = listOf(
             NONE, SEND, NEW_LINE, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, HIDE_KEYBOARD,
             DELETE_WORD, UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE,
             BACK, HOME, RECENTS, NOTIFICATIONS, SCREENSHOT, QUICK_NOTE,
+            PEN_SCROLL, SCROLL_UP, SCROLL_DOWN,
         )
 
         /** Edits on the text field, done the same way wherever the shortcut came from. */
         val FIELD = setOf(UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE)
 
-        /** Android's own buttons, pressed by the helper. */
-        val GLOBAL = setOf(HOME, RECENTS, NOTIFICATIONS, SCREENSHOT)
+        /** Android's own buttons and two-finger scrolling, done by the helper. */
+        val GLOBAL = setOf(HOME, RECENTS, NOTIFICATIONS, SCREENSHOT, PEN_SCROLL, SCROLL_UP, SCROLL_DOWN)
         fun openApp(c: ComponentName) = Action(APP + c.flattenToString())
 
         fun launchIntent(c: ComponentName): Intent = Intent(Intent.ACTION_MAIN)
