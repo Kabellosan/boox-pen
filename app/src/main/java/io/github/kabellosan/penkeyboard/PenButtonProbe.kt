@@ -25,6 +25,7 @@ import java.util.Locale
  * - lets Pen Pad write into the text field you were using in another app;
  * - lets the Go back shortcut press Android's real Back button;
  * - turns eraser taps on any screen (outside the keyboard's strip) into shortcuts;
+ * - pen scroll: moves the app's page with two replayed fingers (see [PenScroll]);
  * - unfreezes an app Boox froze when Pad Launch opens it, by tapping it in Boox's Apps screen;
  * - probes whether the pen's side button sends anything the whole system can see.
  *
@@ -54,12 +55,14 @@ class PenButtonProbe : AccessibilityService() {
 
     override fun onUnbind(intent: Intent?): Boolean {
         instance = null
+        penScroll.stop()
         stopWatching()
         return super.onUnbind(intent)
     }
 
     override fun onDestroy() {
         instance = null
+        penScroll.stop()
         stopWatching()
         super.onDestroy()
     }
@@ -121,6 +124,8 @@ class PenButtonProbe : AccessibilityService() {
     }
 
     private fun onTouchAnywhere(e: MotionEvent) {
+        // Pen scroll's own layer takes these; its zoom drags are eraser touches, not taps.
+        if (penScroll.on) return
         val tool = e.getToolType(0)
         // Android hides where a touch landed only when it landed in another app. So a
         // position means the keyboard's own strip, whose taps are its shortcuts.
@@ -281,9 +286,18 @@ class PenButtonProbe : AccessibilityService() {
         return true
     }
 
-    /** Presses Home, Recents, the notifications or takes a screenshot. False if it couldn't. */
+    val penScroll by lazy { PenScroll(this) }
+
+    /**
+     * Presses Home, Recents, the notifications, takes a screenshot, or scrolls.
+     * False if it couldn't.
+     */
     fun globalAction(action: Action): Boolean {
+        val height = resources.displayMetrics.heightPixels * SCROLL_PART
         val global = when (action) {
+            Action.PEN_SCROLL -> return true.also { penScroll.toggle() }
+            Action.SCROLL_UP -> return true.also { penScroll.scrollBy(0f, height) }
+            Action.SCROLL_DOWN -> return true.also { penScroll.scrollBy(0f, -height) }
             Action.HOME -> GLOBAL_ACTION_HOME
             Action.RECENTS -> GLOBAL_ACTION_RECENTS
             Action.NOTIFICATIONS -> GLOBAL_ACTION_NOTIFICATIONS
@@ -367,6 +381,9 @@ class PenButtonProbe : AccessibilityService() {
          * of taps. Short, so quick rubbing-out strokes in other apps don't add up.
          */
         private const val TAP_GAP_MS = 500L
+
+        /** How much of the screen's height Scroll up/down moves the page. */
+        private const val SCROLL_PART = 0.6f
 
         /** Apps where the eraser is for erasing (Boox Notes): their taps are left alone. */
         private val PEN_APPS = setOf("com.onyx.android.note")
