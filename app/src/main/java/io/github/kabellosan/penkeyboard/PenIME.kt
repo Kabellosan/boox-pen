@@ -493,8 +493,6 @@ class PenIME : InputMethodService(), InkView.Listener {
         val h = ink.height.toFloat()
         ink.clear()
 
-        // A lone comma or period is read from its size and place, not by ML Kit.
-        val mark = Punctuation.loneMark(strokes, wordHeight, ink.baselineY)
 
         val results = HashMap<String, List<String>>()
         for (lang in recognizer.languages) {
@@ -503,10 +501,11 @@ class PenIME : InputMethodService(), InkView.Listener {
                 if (results.size == recognizer.languages.size) {
                     val read = results[activeLang]?.firstOrNull()
                         ?: results.values.firstNotNullOfOrNull { it.firstOrNull() }
-                    val best = if (mark != null && Punctuation.mayOverride(read)) mark else read
+                    // A lone tick, dot or slash is a comma or period, not whatever ML Kit guessed.
+                    val best = Punctuation.pick(strokes, wordHeight, read)
                     if (best != null) commitWord(best, pre)
                     if (best == read && read != null && read.count { it.isLetter() } >= 2) learnWordHeight(strokes)
-                    showCandidates(results, if (mark != null) listOf(mark, ",", ".") else emptyList(), best)
+                    showCandidates(results, Punctuation.markChoices(best), best)
                     then?.invoke()
                 }
             }

@@ -17,13 +17,17 @@ object Punctuation {
         ")", "(", "-", "_", ";", ":", "!", "\"", "„", "”", "7", "°", "^", "~", "¸",
     )
 
+    /** Lone marks ML Kit reads that are almost always a comma when written on their own. */
+    private val commaLike = setOf(
+        ",", "'", "’", "‘", "`", "´", "‚", "/", "\\", "|", ")", "(", ";", "\"", "„", "”", "°", "^", "~", "¸",
+    )
+
     /**
-     * Reads [strokes] as a lone comma, period or apostrophe if it is one: a single
-     * stroke much smaller than the user's words ([wordHeight], in the same pixels).
-     * [baselineY] is the line written on, if the writing area shows one: a mark
-     * well above it is an apostrophe. Null if this isn't a lone small mark.
+     * Reads [strokes] as a lone comma or period if it is one: a single stroke much
+     * smaller than the user's words ([wordHeight], in the same pixels). A dot is a
+     * period, anything else a comma. Null if this isn't a lone small mark.
      */
-    fun loneMark(strokes: List<Stroke>, wordHeight: Float, baselineY: Float?): String? {
+    private fun loneMark(strokes: List<Stroke>, wordHeight: Float): String? {
         if (strokes.size != 1) return null
         val s = strokes[0]
         if (s.size == 0) return null
@@ -31,12 +35,25 @@ object Punctuation {
         val h = s.ys.max() - s.ys.min()
         if (maxOf(w, h) > 0.45f * wordHeight) return null
         if (maxOf(w, h) < 0.12f * wordHeight) return "."
-        if (baselineY != null && s.ys.max() < baselineY - 0.35f * wordHeight) return "'"
         return ","
     }
 
-    /** True if ML Kit's best guess may well be a misread small mark, so the shape decides. */
-    fun mayOverride(best: String?) = best == null || best.trim() in confusable
+    /**
+     * What to type for [strokes], given ML Kit's best guess [read]. A lone small mark
+     * is a comma (or a period, if a dot) unless ML Kit saw a real letter in it, and a
+     * lone stroke ML Kit reads as a slash, apostrophe or the like is a comma too:
+     * those are rare on their own, commas are everywhere.
+     */
+    fun pick(strokes: List<Stroke>, wordHeight: Float, read: String?): String? {
+        val mark = loneMark(strokes, wordHeight)
+        if (mark != null && (read == null || read.trim() in confusable)) return mark
+        if (strokes.size == 1 && read != null && read.trim() in commaLike) return ","
+        return read
+    }
+
+    /** Commas first, so a wrong guess is one tap away; shown when [best] is a mark. */
+    fun markChoices(best: String?): List<String> =
+        if (best == "," || best == ".") listOf(",", ".") else emptyList()
 
     /**
      * How to put [word] after [pre] (the text before the cursor): how many characters
