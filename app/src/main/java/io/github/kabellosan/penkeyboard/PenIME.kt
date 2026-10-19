@@ -571,6 +571,16 @@ class PenIME : InputMethodService(), InkView.Listener {
         }
     }
 
+    /** Takes out the space between the word just written and the word before it. */
+    private fun joinLast() {
+        val ic = currentInputConnection ?: return
+        val last = lastCommitted ?: return
+        val before = ic.getTextBeforeCursor(last.length + 8, 0)?.toString() ?: return
+        val (drop, text) = Punctuation.join(before, last) ?: return
+        ic.deleteSurroundingText(drop, 0)
+        commit(text, remember = true)
+    }
+
     private fun backspace() {
         main.removeCallbacks(commitRunnable)
         if (ink.strokes.isNotEmpty()) { ink.clear(); return }
@@ -709,6 +719,10 @@ class PenIME : InputMethodService(), InkView.Listener {
         candidateRow.removeAllViews()
         val ordered = listOf(activeLang) + recognizer.languages.filter { it != activeLang }
         val seen = HashSet<String>()
+        // Letters written to finish a misread word: one tap glues them onto it.
+        if (marks.isEmpty() && best?.firstOrNull()?.isLetter() == true) {
+            candidateRow.addView(key(Punctuation.JOIN) { joinLast() }, LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        }
         for (m in marks) {
             if (!seen.add(m)) continue
             candidateRow.addView(key(m, bold = m == best) { replaceLast(m) }.apply { textSize = 28f },

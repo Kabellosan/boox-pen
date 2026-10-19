@@ -213,7 +213,7 @@ class PenPadActivity : Activity(), InkView.Listener {
                     val best = Punctuation.pick(strokes, wordHeight, read)
                     if (best != null) insertWord(best, pre)
                     if (best == read && read != null && read.count { it.isLetter() } >= 2) learnWordHeight(strokes)
-                    showCandidates(results, Punctuation.markChoices(best))
+                    showCandidates(results, Punctuation.markChoices(best), best)
                     then?.invoke()
                 }
             }
@@ -266,6 +266,14 @@ class PenPadActivity : Activity(), InkView.Listener {
         }
     }
 
+    /** Takes out the space between the word just written and the word before it. */
+    private fun joinLast() {
+        val last = lastInserted ?: return
+        val before = helper?.textBeforeCursor(last.length + 8) ?: return
+        val (drop, text) = Punctuation.join(before, last) ?: return
+        edit(drop, text, remember = true)
+    }
+
     private fun backspace() {
         main.removeCallbacks(commitRunnable)
         if (ink.strokes.isNotEmpty()) { ink.clear(); return }
@@ -298,10 +306,14 @@ class PenPadActivity : Activity(), InkView.Listener {
 
     // ── UI helpers ──────────────────────────────────────────────────
 
-    private fun showCandidates(results: Map<String, List<String>>, marks: List<String> = emptyList()) {
+    private fun showCandidates(results: Map<String, List<String>>, marks: List<String> = emptyList(), best: String? = null) {
         candidateRow.removeAllViews()
         val ordered = listOf(activeLang) + recognizer.languages.filter { it != activeLang }
         val seen = HashSet<String>()
+        // Letters written to finish a misread word: one tap glues them onto it.
+        if (marks.isEmpty() && best?.firstOrNull()?.isLetter() == true) {
+            candidateRow.addView(key(Punctuation.JOIN) { joinLast() }, LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        }
         for (m in marks) {
             if (seen.add(m)) candidateRow.addView(key(m) { replaceLast(m) }, LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
         }

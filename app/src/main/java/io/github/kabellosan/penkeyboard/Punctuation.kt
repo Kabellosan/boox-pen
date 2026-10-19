@@ -33,7 +33,8 @@ object Punctuation {
     /**
      * Reads [strokes] as a lone comma or period if it is one: a single stroke much
      * smaller than the user's words ([wordHeight], in the same pixels). A dot is a
-     * period, anything else a comma. Null if this isn't a lone small mark.
+     * period, a flat line a hyphen, anything else a comma. Null if this isn't a lone
+     * small mark.
      */
     private fun loneMark(strokes: List<Stroke>, wordHeight: Float): String? {
         if (strokes.size != 1) return null
@@ -43,16 +44,36 @@ object Punctuation {
         val h = s.ys.max() - s.ys.min()
         if (maxOf(w, h) > 0.45f * wordHeight) return null
         if (maxOf(w, h) < 0.12f * wordHeight) return "."
+        if (w > 2.5f * h) return "-"
         return ","
+    }
+
+    /** What ML Kit makes of a lone exclamation mark. */
+    private val bangLike = setOf("!", "i", "I", "l", "1", "|", "j", "í", "¡")
+
+    /**
+     * True if [strokes] is an exclamation mark: two strokes, a line and a dot
+     * under it. ("i" has its dot on top, so the dot's place tells them apart.)
+     */
+    private fun isBang(strokes: List<Stroke>): Boolean {
+        if (strokes.size != 2 || strokes.any { it.size == 0 }) return false
+        fun extent(s: Stroke) = maxOf(s.xs.max() - s.xs.min(), s.ys.max() - s.ys.min())
+        val (dot, line) = strokes.sortedBy(::extent)
+        val lineTop = line.ys.min()
+        val lineBottom = line.ys.max()
+        if (lineBottom - lineTop < 2 * extent(dot)) return false
+        return dot.ys.average() > (lineTop + lineBottom) / 2
     }
 
     /**
      * What to type for [strokes], given ML Kit's best guess [read]. A lone small mark
      * is a comma (or a period, if a dot) unless ML Kit saw a real letter in it, and a
      * lone mark ML Kit reads as a slash, apostrophe or the like is a comma too:
-     * those are rare on their own, commas are everywhere.
+     * those are rare on their own, commas are everywhere. A line with a dot under
+     * it is "!", whatever letter ML Kit made of it.
      */
     fun pick(strokes: List<Stroke>, wordHeight: Float, read: String?): String? {
+        if (read != null && read.trim() in bangLike && isBang(strokes)) return "!"
         val mark = loneMark(strokes, wordHeight)
         if (mark != null && (read == null || read.trim() in confusable)) return mark
         if (read != null && commaLike(read)) return ","
@@ -61,7 +82,25 @@ object Punctuation {
 
     /** Commas first, so a wrong guess is one tap away; shown when [best] is a mark. */
     fun markChoices(best: String?): List<String> =
-        if (best == "," || best == ".") listOf(",", ".") else emptyList()
+        if (best == "," || best == "." || best == "-") listOf(",", ".", "-") else emptyList()
+
+    /** Label of the candidate that glues the word just written onto the one before it. */
+    const val JOIN = "←join"
+
+    /**
+     * How to glue [last] (the text just typed, as it sits before the cursor) onto the
+     * word before it, given [before], the text before the cursor ending in [last]:
+     * how many characters to delete, and the text to write. Null if there is no
+     * space in between to take out.
+     */
+    fun join(before: String, last: String): Pair<Int, String>? {
+        if (!before.endsWith(last)) return null
+        val prefix = before.dropLast(last.length)
+        val spacesBefore = prefix.length - prefix.trimEnd(' ').length
+        val leadInLast = last.length - last.trimStart(' ').length
+        if (spacesBefore + leadInLast == 0 || prefix.isBlank()) return null
+        return (last.length + spacesBefore) to last.trim() + " "
+    }
 
     /**
      * How to put [word] after [pre] (the text before the cursor): how many characters
