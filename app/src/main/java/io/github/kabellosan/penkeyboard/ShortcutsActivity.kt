@@ -69,6 +69,8 @@ class ShortcutsActivity : Activity() {
             choice(t.label, shortcuts.action(t)) { shortcuts.setAction(t, it) }
         }
         list.addView(text("Hold a page button and tap with the tip outside the keyboard; it runs when you let go.", 16f))
+        list.addView(text("In apps you read in, keep Boox's Page turning: the buttons turn pages there " +
+            "and these shortcuts don't run.", 16f))
 
         section("Your gestures",
             "Draw one with the pen's button held in the keyboard's empty writing area, or with the tip in Pad Launch.")

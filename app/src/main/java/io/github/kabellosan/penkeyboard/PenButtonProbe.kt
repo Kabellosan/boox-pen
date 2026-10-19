@@ -161,6 +161,8 @@ class PenButtonProbe : AccessibilityService() {
     fun takeTipTaps(time: Long, windowMs: Long): Int {
         val n = tipDowns.count { it in (time - windowMs)..time }
         if (n > 0) tipDowns.clear()
+        // In Boox Notes the tip was writing, and a page press right after turns the page.
+        if (n > 0 && rootInActiveWindow?.packageName?.toString() in PEN_APPS) return 0
         return n
     }
 
@@ -381,7 +383,7 @@ class PenButtonProbe : AccessibilityService() {
         fun record(context: Context, line: String) {
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.ROOT).format(Date())
-            val lines = (listOf("$time  $line") + (prefs.getString(LOG, "") ?: "").lines().filter { it.isNotBlank() }).take(20)
+            val lines = (listOf("$time  $line") + (prefs.getString(LOG, "") ?: "").lines().filter { it.isNotBlank() }).take(60)
             prefs.edit().putString(LOG, lines.joinToString("\n")).apply()
         }
 
