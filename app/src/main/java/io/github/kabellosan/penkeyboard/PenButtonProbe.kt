@@ -188,12 +188,13 @@ class PenButtonProbe : AccessibilityService() {
             } else {
                 performGlobalAction(GLOBAL_ACTION_BACK)
             }
-            Action.QUICK_PAD -> launch(Intent(this, LauncherActivity::class.java))
+            // Pad Launch lives in the keyboard now; its own screen only if the keyboard isn't running.
+            Action.QUICK_PAD -> if (!PenIME.showSelf(this, commands = true)) launch(Intent(this, LauncherActivity::class.java))
             Action.PEN_PAD -> launch(Intent(this, PenPadActivity::class.java))
             Action.FULL_SCREEN -> if (PenIME.shown) PenIME.toggleFullScreen()
             Action.SEND -> pressEnter()
             Action.HIDE_KEYBOARD -> PenIME.instance?.requestHideSelf(0)
-            Action.SHOW_KEYBOARD -> PenIME.showSelf(this)
+            Action.SHOW_KEYBOARD -> PenIME.showSelf(this, commands = false)
             Action.COMMA, Action.PERIOD -> {
                 val mark = if (action == Action.COMMA) "," else "."
                 if (PenIME.shown) PenIME.typeMark(mark)
