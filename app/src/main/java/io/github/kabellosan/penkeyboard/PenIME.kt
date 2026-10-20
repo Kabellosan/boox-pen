@@ -2,6 +2,7 @@ package io.github.kabellosan.penkeyboard
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -432,6 +433,7 @@ class PenIME : InputMethodService(), InkView.Listener {
                 if (hasView && ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()
             }
             Action.HIDE_KEYBOARD -> flushThen { requestHideSelf(0) }
+            Action.SHOW_KEYBOARD -> showKeyboard()
             Action.QUICK_NOTE -> flushThen { BooxTools.openQuickNote(this) }
             in Action.FIELD -> flushThen { fieldAction(action) }
             in Action.GLOBAL -> flushThen {
@@ -449,6 +451,36 @@ class PenIME : InputMethodService(), InkView.Listener {
             main.removeCallbacks(commitRunnable)
             main.postDelayed(commitRunnable, commitDelayMs)
         }
+    }
+
+    /**
+     * Test: can the keyboard open where no text field is focused? Asks Android to
+     * show it and writes to the key log what it was attached to and what happened.
+     */
+    private fun showKeyboard() {
+        if (isInputViewShown) { PenButtonProbe.record(this, "Show keyboard: already open"); return }
+        val info = currentInputEditorInfo
+        val field = when {
+            !currentInputStarted || info == null -> "no field"
+            info.inputType == 0 -> "no text field (${info.packageName})"
+            else -> "text field in ${info.packageName}"
+        }
+        val window = PenButtonProbe.instance?.rootInActiveWindow?.packageName ?: "?"
+        PenButtonProbe.record(this, "Show keyboard: asking, on $window, $field")
+        requestShowSelf(0)
+        main.postDelayed({
+            val result = when {
+                !isInputViewShown -> "did NOT open"
+                shown -> "opened, pen on"
+                else -> "opened without starting input, pen off"
+            }
+            PenButtonProbe.record(this, "Show keyboard: $result")
+            // Opened with nothing to type into: still turn the pen on, to see if ink works.
+            if (isInputViewShown && !shown && hasView) {
+                ink.post { ink.startPen() }
+                PenButtonProbe.record(this, "Show keyboard: pen turned on anyway")
+            }
+        }, 800)
     }
 
     /** Undo, cursor moves and the clipboard, done by the app's own text field. */
@@ -769,5 +801,12 @@ class PenIME : InputMethodService(), InkView.Listener {
 
         /** A text-field action for a shortcut run by the helper, while the keyboard is open. */
         fun runFieldAction(action: Action) = instance?.fieldAction(action)
+
+        /** Show the keyboard for a shortcut run by the helper. */
+        fun showSelf(context: Context) {
+            val ime = instance
+            if (ime == null) PenButtonProbe.record(context, "Show keyboard: Pen Keyboard isn't running (not the chosen keyboard?)")
+            else ime.showKeyboard()
+        }
     }
 }

@@ -193,6 +193,7 @@ class PenButtonProbe : AccessibilityService() {
             Action.FULL_SCREEN -> if (PenIME.shown) PenIME.toggleFullScreen()
             Action.SEND -> pressEnter()
             Action.HIDE_KEYBOARD -> PenIME.instance?.requestHideSelf(0)
+            Action.SHOW_KEYBOARD -> PenIME.showSelf(this)
             Action.COMMA, Action.PERIOD -> {
                 val mark = if (action == Action.COMMA) "," else "."
                 if (PenIME.shown) PenIME.typeMark(mark)

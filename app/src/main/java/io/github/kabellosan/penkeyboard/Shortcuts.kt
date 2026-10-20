@@ -32,6 +32,7 @@ data class Action(val code: String) {
         COMMA -> "Type a comma"
         PERIOD -> "Type a period"
         HIDE_KEYBOARD -> "Hide the keyboard"
+        SHOW_KEYBOARD -> "Show the keyboard (test)"
         UNDO -> "Undo"
         CURSOR_START -> "Cursor to the start"
         CURSOR_END -> "Cursor to the end"
@@ -66,6 +67,7 @@ data class Action(val code: String) {
         val COMMA = Action("comma")
         val PERIOD = Action("period")
         val HIDE_KEYBOARD = Action("hide_keyboard")
+        val SHOW_KEYBOARD = Action("show_keyboard")
         val UNDO = Action("undo")
         val CURSOR_START = Action("cursor_start")
         val CURSOR_END = Action("cursor_end")
@@ -81,7 +83,7 @@ data class Action(val code: String) {
         val SCROLL_UP = Action("scroll_up")
         val SCROLL_DOWN = Action("scroll_down")
         val BUILT_IN = listOf(
-            NONE, SEND, NEW_LINE, COMMA, PERIOD, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, HIDE_KEYBOARD,
+            NONE, SEND, NEW_LINE, COMMA, PERIOD, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, HIDE_KEYBOARD, SHOW_KEYBOARD,
             DELETE_WORD, UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE,
             BACK, HOME, RECENTS, NOTIFICATIONS, SCREENSHOT, QUICK_NOTE,
             PEN_SCROLL, SCROLL_UP, SCROLL_DOWN,
