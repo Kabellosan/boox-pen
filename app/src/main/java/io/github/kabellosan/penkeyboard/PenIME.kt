@@ -2,6 +2,7 @@ package io.github.kabellosan.penkeyboard
 
 import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -34,6 +35,9 @@ import android.widget.TextView
  * Full screen turns the whole screen above the keys into a see-through writing
  * area over the app, like the Boox keyboard's, with the keys, delete, the cursor
  * slide and the button shortcuts all still working. A finger tap goes back.
+ *
+ * Summoned where there is no text field, it opens in command mode: write an app
+ * name or an action ("back", "home"…) and it runs.
  */
 class PenIME : InputMethodService(), InkView.Listener {
 
@@ -49,6 +53,15 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     /** The whole screen is the writing area, the app showing through it. */
     private var fullScreen = false
+
+    /**
+     * Command mode: summoned with no text field (or asked for), so a written word
+     * opens an app or runs an action instead of being typed. See [Commands].
+     */
+    private var commandMode = false
+    /** Set when we ask to be shown: null = not summoned, else command mode wanted even with a field. */
+    private var summoned: Boolean? = null
+    private var apps: AppMatcher? = null
 
     /** Language whose best guess is committed automatically. */
     private var activeLang = "da"
@@ -77,6 +90,9 @@ class PenIME : InputMethodService(), InkView.Listener {
     // Boox sends each page-button press only on release (down and up 1-3 ms apart),
     // sometimes 0.7 s after the previous one, and drops one of two very fast presses.
     private val pressGapMs = 900L
+    // When a single press turns the page, a shorter wait for a second press, so
+    // page turns don't lag (doubles came about 0.2 s apart in the key log). Set
+    // in Pen shortcuts.
     /** How far back from a page button's release tip taps count as done while holding it. */
     private val pageTapWindowMs = 1500L
     private val finishPress = Runnable {
@@ -150,7 +166,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         keys.addView(commaKey, weight(1f))
         keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(1.6f))
         keys.addView(deleteKey(), weight(2.5f))
-        enterKey = key("⏎") { flushThen { enter() } }
+        enterKey = key("⏎") { if (commandMode) requestHideSelf(0) else flushThen { enter() } }
         enterKey.setOnLongClickListener { flushThen { commit("\n", remember = false) }; true }
         keys.addView(enterKey, weight(1.5f))
         bar.addView(keys, LinearLayout.LayoutParams(MATCH_PARENT, (52 * dp).toInt()))
@@ -213,6 +229,7 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     override fun onStartInputView(info: EditorInfo, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        if (commandMode && info.inputType != EditorInfo.TYPE_NULL && summoned == null) setCommandMode(false)
         lastCommitted = null
         activeLang = Shortcuts.language(this)
         langKey.text = activeLang.uppercase()
@@ -231,6 +248,57 @@ class PenIME : InputMethodService(), InkView.Listener {
         // Next time, in whatever app, the keyboard opens as the box again.
         if (fullScreen) { fullScreen = false; layOut() }
         super.onFinishInputView(finishingInput)
+    }
+
+    /**
+     * After we asked to be shown: with no text field to type into (or when asked
+     * for), the keyboard opens in command mode. Without a field Android shows the
+     * window but never starts input, so the pen is turned on here.
+     */
+    override fun onWindowShown() {
+        super.onWindowShown()
+        val wantCommands = summoned ?: return
+        summoned = null
+        val field = hasField()
+        PenButtonProbe.record(this, "Show keyboard: opened" + if (field) ", text field" else ", no text field")
+        if (!hasView) return
+        if (wantCommands || !field) setCommandMode(true)
+        if (!shown) {
+            ink.post { ink.startPen() }
+            shown = true
+        }
+    }
+
+    override fun onWindowHidden() {
+        summoned = null
+        if (commandMode) setCommandMode(false)
+        if (shown && hasView) {
+            ink.stopPen()
+            ink.clear()
+        }
+        shown = false
+        super.onWindowHidden()
+    }
+
+    /** A field the keyboard can type into is focused. */
+    private fun hasField(): Boolean =
+        currentInputStarted && (currentInputEditorInfo?.inputType ?: EditorInfo.TYPE_NULL) != EditorInfo.TYPE_NULL
+
+    private fun setCommandMode(on: Boolean) {
+        commandMode = on
+        if (!hasView) return
+        if (on) {
+            main.removeCallbacks(commitRunnable)
+            ink.clear()
+            // The app list takes a moment: after the keyboard is on screen.
+            main.post { if (commandMode && apps == null) apps = AppMatcher(this) }
+            enterKey.text = "Close"
+            showMessage("Write an app or a command")
+        } else {
+            apps = null
+            enterKey.text = currentInputEditorInfo?.let { if (sendsAction(it)) "Send" else "⏎" } ?: "⏎"
+            showCandidates(emptyMap())
+        }
     }
 
     // ── Pen events ──────────────────────────────────────────────────
@@ -259,8 +327,8 @@ class PenIME : InputMethodService(), InkView.Listener {
      * Boox sends a press only when the button is let go, down and up together.
      * After two or three tip taps a press is a [PageTap]; otherwise it is swallowed
      * (so the volume doesn't change) and counted toward a press or double press.
-     * Apps that turn pages with the buttons are set to Page turning in Boox, which
-     * never sends us their presses, so they are left alone either way.
+     * A single press set to turn the page waits only briefly for a second press,
+     * then sends the app a page key (see [turnPage]).
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val button = pageButton(keyCode)?.takeIf(shortcuts::usesPageButton) ?: return super.onKeyDown(keyCode, event)
@@ -329,7 +397,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         main.removeCallbacks(finishPress)
         pressButton = button
         pressCount++
-        main.postDelayed(finishPress, pressGapMs)
+        val turns = shortcuts.action(press(button, double = false)) in Action.PAGE_TURNS
+        main.postDelayed(finishPress, if (turns) Shortcuts.turnWaitMs(this) else pressGapMs)
     }
 
     /** The Go 7's page buttons, as Boox sends them (volume keys) or as page keys. */
@@ -412,8 +481,17 @@ class PenIME : InputMethodService(), InkView.Listener {
         perform(match.action)
     }
 
-    /** Runs a shortcut's action. */
+    /** Runs a shortcut's action; in command mode most close the keyboard first. */
     private fun perform(action: Action) {
+        if (commandMode && action !in keyboardActions) runCommand(Command(action.label(packageManager), action))
+        else performNow(action)
+    }
+
+    /** Actions about the keyboard itself, run in place even in command mode. */
+    private val keyboardActions = setOf(Action.NONE, Action.LANG, Action.FULL_SCREEN, Action.DELETE_WORD,
+        Action.QUICK_PAD, Action.SHOW_KEYBOARD, Action.HIDE_KEYBOARD)
+
+    private fun performNow(action: Action) {
         when (action) {
             Action.NONE -> {}
             Action.SEND -> flushThen { send() }
@@ -422,7 +500,7 @@ class PenIME : InputMethodService(), InkView.Listener {
             Action.NEW_LINE -> flushThen { newLine() }
             Action.COMMA -> commitMark(",")
             Action.PERIOD -> commitMark(".")
-            Action.QUICK_PAD -> openLauncher()
+            Action.QUICK_PAD -> showKeyboard(commands = true)
             Action.BACK -> flushThen { goBack() }
             Action.PEN_PAD -> flushThen {
                 startActivity(Intent(this, PenPadActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -432,7 +510,9 @@ class PenIME : InputMethodService(), InkView.Listener {
                 if (hasView && ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()
             }
             Action.HIDE_KEYBOARD -> flushThen { requestHideSelf(0) }
+            Action.SHOW_KEYBOARD -> showKeyboard(commands = false)
             Action.QUICK_NOTE -> flushThen { BooxTools.openQuickNote(this) }
+            in Action.PAGE_TURNS -> turnPage(action)
             in Action.FIELD -> flushThen { fieldAction(action) }
             in Action.GLOBAL -> flushThen {
                 if (PenButtonProbe.instance?.globalAction(action) != true) {
@@ -449,6 +529,107 @@ class PenIME : InputMethodService(), InkView.Listener {
             main.removeCallbacks(commitRunnable)
             main.postDelayed(commitRunnable, commitDelayMs)
         }
+    }
+
+    /**
+     * Opens the keyboard wherever you are, even with no text field (Android shows
+     * it; [onWindowShown] takes over). [commands]: command mode even over a field.
+     */
+    private fun showKeyboard(commands: Boolean) {
+        if (isInputViewShown) {
+            if (commands && !commandMode) flushThen { setCommandMode(true) }
+            return
+        }
+        summoned = commands
+        val window = PenButtonProbe.instance?.rootInActiveWindow?.packageName ?: "?"
+        PenButtonProbe.record(this, "Show keyboard: asking, on $window")
+        requestShowSelf(0)
+    }
+
+    /** Command mode: read the ink, then open the app or run the action it names. */
+    private fun recognizeCommand() {
+        val strokes = ink.strokes.toList()
+        if (strokes.isEmpty()) return
+        // A recorded gesture drawn with the tip, as Pad Launch did.
+        shortcuts.matchGesture(strokes)?.first?.action?.let { ink.clear(); runCommand(Command(it.label(packageManager), it)); return }
+        val matcher = apps ?: AppMatcher(this).also { apps = it }
+        val w = ink.width.toFloat()
+        val h = ink.height.toFloat()
+        ink.clear()
+        val results = HashMap<String, List<String>>()
+        for (lang in recognizer.languages) {
+            recognizer.recognize(lang, strokes, w, h, "") { candidates ->
+                results[lang] = candidates
+                if (results.size == recognizer.languages.size && commandMode) showCommands(results, matcher)
+            }
+        }
+    }
+
+    private fun showCommands(results: Map<String, List<String>>, matcher: AppMatcher) {
+        // Interleave the languages' guesses, best first, the active language leading.
+        val lists = (listOf(activeLang) + recognizer.languages.filter { it != activeLang }).mapNotNull { results[it] }
+        val texts = (0 until (lists.maxOfOrNull { it.size } ?: 0))
+            .flatMap { i -> lists.mapNotNull { it.getOrNull(i) } }
+            .distinct()
+        val read = texts.firstOrNull().orEmpty()
+        val matches = Commands.match(texts, matcher, packageManager)
+        PenButtonProbe.record(this, "Command: read \"$read\", " +
+            (matches.firstOrNull()?.let { "best ${it.first.label} (${it.second})" } ?: "nothing matched"))
+        if (matches.isEmpty()) {
+            showMessage(if (read.isEmpty()) "Couldn't read that, try again" else "\"$read\": no app or command")
+            return
+        }
+        // Run straight away when exactly one thing's name starts with what was written.
+        val sure = matches.filter { it.second >= AppMatcher.PREFIX }.map { it.first }.distinctBy { it.action }
+        if (sure.size == 1) { runCommand(sure[0]); return }
+        candidateRow.removeAllViews()
+        for ((command, _) in matches.distinctBy { it.first.action }.take(5)) {
+            candidateRow.addView(key(command.label) { runCommand(command) },
+                LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        }
+    }
+
+    /**
+     * Opens the app (the keyboard then closes with the app it was over), or closes
+     * the keyboard and runs the action, so Back or Home act on the app, not on us.
+     */
+    private fun runCommand(command: Command) {
+        PenButtonProbe.record(this, "Command: ${command.label}")
+        val app = command.app ?: command.action.app?.let { AppEntry(command.label, it) }
+        if (app != null) {
+            val helper = PenButtonProbe.instance
+            if (FrozenApps.isFrozen(packageManager, app.component.packageName)) {
+                if (helper == null) { showMessage("${app.label} is frozen in Boox: turn on the helper to open it from here"); return }
+                requestHideSelf(0)
+                helper.unfreezeAndOpen(app.component, app.label)
+                return
+            }
+            try {
+                startActivity(Action.launchIntent(app.component))
+                requestHideSelf(0)
+            } catch (e: Exception) {
+                showMessage("Couldn't open ${app.label}")
+            }
+            return
+        }
+        if (command.action == Action.BACK) { goBack(); return }
+        requestHideSelf(0)
+        main.postDelayed({ performNow(command.action) }, 150)
+    }
+
+    /**
+     * Sends the app a page key through the keyboard's connection to it, as Boox
+     * would have; with no connection the helper swipes the page instead.
+     */
+    private fun turnPage(action: Action) {
+        val code = if (action == Action.NEXT_PAGE) KeyEvent.KEYCODE_PAGE_DOWN else KeyEvent.KEYCODE_PAGE_UP
+        val ic = currentInputConnection
+        val now = SystemClock.uptimeMillis()
+        val sent = ic != null && ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0)) &&
+            ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0))
+        if (sent) { PenButtonProbe.record(this, "  page key sent to the app"); return }
+        val swiped = PenButtonProbe.instance?.globalAction(action) == true
+        PenButtonProbe.record(this, if (swiped) "  no connection, helper swiped" else "  couldn't turn the page")
     }
 
     /** Undo, cursor moves and the clipboard, done by the app's own text field. */
@@ -486,6 +667,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     }
 
     private fun recognizeAndCommit(then: (() -> Unit)? = null) {
+        if (commandMode) { recognizeCommand(); then?.invoke(); return }
         val strokes = ink.strokes.toList()
         if (strokes.isEmpty()) { then?.invoke(); return }
         val pre = currentInputConnection?.getTextBeforeCursor(20, 0)?.toString() ?: ""
@@ -669,12 +851,6 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (hasView) langKey.text = activeLang.uppercase()
     }
 
-    private fun openLauncher() {
-        flushThen {
-            startActivity(Intent(this, LauncherActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-    }
-
     /**
      * Android's Back. The helper service presses the real Back button; the keyboard
      * hides first, or that press would only close the keyboard. Without the helper,
@@ -769,5 +945,16 @@ class PenIME : InputMethodService(), InkView.Listener {
 
         /** A text-field action for a shortcut run by the helper, while the keyboard is open. */
         fun runFieldAction(action: Action) = instance?.fieldAction(action)
+
+        /**
+         * Shows the keyboard for a shortcut run by the helper; [commands] opens it in
+         * command mode. False if Pen Keyboard isn't the keyboard in use.
+         */
+        fun showSelf(context: Context, commands: Boolean): Boolean {
+            val ime = instance
+            if (ime == null) PenButtonProbe.record(context, "Show keyboard: Pen Keyboard isn't running (not the chosen keyboard?)")
+            ime?.showKeyboard(commands)
+            return ime != null
+        }
     }
 }

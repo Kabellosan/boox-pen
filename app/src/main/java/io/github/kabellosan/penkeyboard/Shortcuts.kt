@@ -23,7 +23,7 @@ data class Action(val code: String) {
         NONE -> "Nothing"
         SEND -> "Send / Enter"
         LANG -> "Switch DA/EN"
-        QUICK_PAD -> "Open Pad Launch"
+        QUICK_PAD -> "Commands: open an app or action by writing"
         DELETE_WORD -> "Delete last word"
         BACK -> "Go back"
         PEN_PAD -> "Open Pen Pad"
@@ -32,6 +32,7 @@ data class Action(val code: String) {
         COMMA -> "Type a comma"
         PERIOD -> "Type a period"
         HIDE_KEYBOARD -> "Hide the keyboard"
+        SHOW_KEYBOARD -> "Show the keyboard (commands if no text field)"
         UNDO -> "Undo"
         CURSOR_START -> "Cursor to the start"
         CURSOR_END -> "Cursor to the end"
@@ -46,6 +47,8 @@ data class Action(val code: String) {
         PEN_SCROLL -> "Pen scroll on/off"
         SCROLL_UP -> "Scroll up"
         SCROLL_DOWN -> "Scroll down"
+        NEXT_PAGE -> "Next page"
+        PREVIOUS_PAGE -> "Previous page"
         else -> if (BooxTools.isTool(this)) BooxTools.label(this) else app?.let { c ->
             val name = runCatching { pm.getActivityInfo(c, 0).loadLabel(pm).toString() }.getOrNull()
             "Open ${name ?: c.packageName}"
@@ -66,6 +69,7 @@ data class Action(val code: String) {
         val COMMA = Action("comma")
         val PERIOD = Action("period")
         val HIDE_KEYBOARD = Action("hide_keyboard")
+        val SHOW_KEYBOARD = Action("show_keyboard")
         val UNDO = Action("undo")
         val CURSOR_START = Action("cursor_start")
         val CURSOR_END = Action("cursor_end")
@@ -80,18 +84,24 @@ data class Action(val code: String) {
         val PEN_SCROLL = Action("pen_scroll")
         val SCROLL_UP = Action("scroll_up")
         val SCROLL_DOWN = Action("scroll_down")
+        val NEXT_PAGE = Action("next_page")
+        val PREVIOUS_PAGE = Action("previous_page")
         val BUILT_IN = listOf(
-            NONE, SEND, NEW_LINE, COMMA, PERIOD, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, HIDE_KEYBOARD,
+            NONE, SEND, NEW_LINE, COMMA, PERIOD, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, HIDE_KEYBOARD, SHOW_KEYBOARD,
             DELETE_WORD, UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE,
             BACK, HOME, RECENTS, NOTIFICATIONS, SCREENSHOT, QUICK_NOTE,
-            PEN_SCROLL, SCROLL_UP, SCROLL_DOWN,
+            PEN_SCROLL, SCROLL_UP, SCROLL_DOWN, NEXT_PAGE, PREVIOUS_PAGE,
         )
 
         /** Edits on the text field, done the same way wherever the shortcut came from. */
         val FIELD = setOf(UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE)
 
         /** Android's own buttons and two-finger scrolling, done by the helper. */
-        val GLOBAL = setOf(HOME, RECENTS, NOTIFICATIONS, SCREENSHOT, PEN_SCROLL, SCROLL_UP, SCROLL_DOWN)
+        val GLOBAL = setOf(HOME, RECENTS, NOTIFICATIONS, SCREENSHOT, PEN_SCROLL, SCROLL_UP, SCROLL_DOWN,
+            NEXT_PAGE, PREVIOUS_PAGE)
+
+        /** Page turns: on a page button's single press they happen at once. */
+        val PAGE_TURNS = setOf(NEXT_PAGE, PREVIOUS_PAGE)
         fun openApp(c: ComponentName) = Action(APP + c.flattenToString())
 
         fun launchIntent(c: ComponentName): Intent = Intent(Intent.ACTION_MAIN)
@@ -295,6 +305,16 @@ class Shortcuts(context: Context) {
     companion object {
         private const val GESTURES = "gestures"
         private const val LANG = "lang"
+        private const val TURN_WAIT = "turn_wait_ms"
+
+        /** Waits to choose from for a second press, when a single press turns the page. */
+        val TURN_WAITS = listOf(200L, 300L, 400L, 500L)
+
+        fun turnWaitMs(context: Context): Long =
+            context.getSharedPreferences("shortcuts", Context.MODE_PRIVATE).getLong(TURN_WAIT, 400L)
+
+        fun setTurnWaitMs(context: Context, ms: Long) =
+            context.getSharedPreferences("shortcuts", Context.MODE_PRIVATE).edit().putLong(TURN_WAIT, ms).apply()
 
         /** The language whose best guess is typed, shared by the keyboard and Pen Pad. */
         fun language(context: Context): String =

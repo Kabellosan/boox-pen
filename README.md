@@ -53,14 +53,14 @@ press, or draw on the keyboard's strip. The **Pen shortcuts** screen (button in 
 app) sets what each does:
 
 - Tap twice, tap three times, press and hold, swipe sideways: each gets an action
-  (Send, switch DA/EN, open Pad Launch, delete the last word, go back, open an app,
+  (Send, switch DA/EN, Commands, delete the last word, go back, open an app,
   or nothing). Go back needs **Pen Keyboard helper** switched on in Accessibility settings.
 - Your own gestures: **Add a gesture**, draw the shape two or three times, pick an
-  action. Draw it with the button held on an empty strip, or with the tip in Pad Launch.
+  action. Draw it with the button held on an empty strip, or with the tip in command mode.
   A T for Telegram, a circle for anything you like.
 
 - Pen button anywhere: with the helper on, hold the button and tap twice (Go back)
-  or three times (Pad Launch) on any screen.
+  or three times (Commands) on any screen.
 - Page buttons: a press or double press of Up or Down runs an action even with the
   keyboard hidden (defaults: Up double press opens Pen Pad, Down double press goes
   back), and so does holding one while tapping the screen two or three times with the
@@ -90,13 +90,17 @@ field's send action, **Done** closes the pad.
 It needs **Pen Keyboard helper** switched on (Accessibility settings): the helper
 remembers the last text field you tapped in another app and writes into it.
 
-## Pad Launch
+## Commands (the keyboard anywhere)
 
-The app also installs a second icon, **Pad Launch**. Write an app name ("Tele")
-and lift the pen: if exactly one app's name starts with it, that app opens;
-otherwise up to four matches are shown to tap.
-To open it with a hardware button: Boox Settings → button settings → map a button
-to open the **Pad Launch** app.
+Set a shortcut to **Commands** (or **Show the keyboard**) and the keyboard opens on
+any screen, even where there's no text field. With no field it's in command mode:
+write an app name ("Tele") or an action ("back", "home", "recents", "screenshot",
+"note", "scroll", "pad"; Danish works too) and lift the pen. If exactly one name
+starts with what you wrote, it runs; otherwise up to five matches are shown to tap.
+Button shapes run your shortcuts, and **Close** hides it. **Commands** opens command
+mode even over a text field. Frozen apps open through the helper, as before.
+
+The old **Pad Launch** icon still opens its own screen, for a Boox button mapped to it.
 
 Apps Boox has frozen are found too. Opening one unfreezes it first: with
 **Pen Keyboard helper** on, the helper goes to Boox's Apps screen and taps the
