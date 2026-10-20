@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
@@ -50,6 +51,14 @@ class PenIME : InputMethodService(), InkView.Listener {
     private lateinit var fullKey: TextView
     /** The keys and guesses: on top of the box, or along the bottom in full screen. */
     private lateinit var bar: LinearLayout
+    /** Keys and guesses: stacked in portrait, side by side in one row in landscape. */
+    private lateinit var keyRows: LinearLayout
+    private lateinit var keys: LinearLayout
+    private lateinit var guesses: HorizontalScrollView
+
+    /** Full screen and command mode to bring back after the screen turns. */
+    private var restoreFullScreen = false
+    private var restoreCommandMode = false
 
     /** The whole screen is the writing area, the app showing through it. */
     private var fullScreen = false
@@ -153,7 +162,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         bar.addView(View(this).apply { setBackgroundColor(Color.BLACK) },
             LinearLayout.LayoutParams(MATCH_PARENT, (2 * dp).toInt()))
 
-        val keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         langKey = key(activeLang.uppercase()) { toggleLanguage() }
         keys.addView(langKey, weight(1f))
         keys.addView(key("⌨") { switchKeyboard() }, weight(1f))
@@ -169,32 +178,106 @@ class PenIME : InputMethodService(), InkView.Listener {
         enterKey = key("⏎") { if (commandMode) requestHideSelf(0) else flushThen { enter() } }
         enterKey.setOnLongClickListener { flushThen { commit("\n", remember = false) }; true }
         keys.addView(enterKey, weight(1.5f))
-        bar.addView(keys, LinearLayout.LayoutParams(MATCH_PARENT, (52 * dp).toInt()))
 
         candidateRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        bar.addView(HorizontalScrollView(this).apply {
+        guesses = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
             addView(candidateRow)
-        }, LinearLayout.LayoutParams(MATCH_PARENT, (44 * dp).toInt()))
+        }
+        keyRows = LinearLayout(this)
+        bar.addView(keyRows, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
         ink = InkView(this, this)
         root.addView(ink)
         root.addView(bar)
         fullScreen = false
         layOut()
+        if (restoreFullScreen || restoreCommandMode) {
+            val full = restoreFullScreen
+            val commands = restoreCommandMode
+            restoreFullScreen = false
+            restoreCommandMode = false
+            root.post { restoreAfterTurn(full, commands) }
+        }
         return root
     }
 
-    /** Box under the keys, or the whole screen above them. */
+    /**
+     * The screen turned: Android throws the keyboard's views away and builds new
+     * ones. Type any waiting ink and shut the old ink layer down first (left open,
+     * its raw drawing kept the old place on screen), then bring back full screen
+     * and command mode in the new views.
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        if (hasView && isInputViewShown) {
+            main.removeCallbacks(commitRunnable)
+            if (!commandMode && ink.strokes.isNotEmpty()) recognizeAndCommit() else ink.clear()
+            restoreFullScreen = fullScreen
+            restoreCommandMode = commandMode
+            ink.stopPen()
+        }
+        super.onConfigurationChanged(newConfig)
+        // Some versions keep the old views when nothing they care about changed.
+        if (restoreFullScreen || restoreCommandMode) {
+            main.post {
+                if (restoreFullScreen || restoreCommandMode) {
+                    val full = restoreFullScreen
+                    val commands = restoreCommandMode
+                    restoreFullScreen = false
+                    restoreCommandMode = false
+                    restoreAfterTurn(full, commands)
+                }
+            }
+        } else if (hasView) {
+            main.post { if (isInputViewShown) ink.startPen(force = true) }
+        }
+    }
+
+    private fun restoreAfterTurn(full: Boolean, commands: Boolean) {
+        if (!hasView || !isInputViewShown) return
+        // The new views show the box's keys; command mode needs its Close key back.
+        if (commands) setCommandMode(true)
+        if (full != fullScreen) {
+            fullScreen = full
+            layOut()
+        }
+        ink.postDelayed({ if (isInputViewShown) ink.startPen(force = true) }, 300)
+    }
+
+    private val landscape get() = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    /**
+     * Box under the keys, or the whole screen above them. In landscape the screen
+     * is wide and short: the guesses sit beside the keys in one row and the box is
+     * lower and wider, so the app keeps more than half the screen.
+     */
     private fun layOut() {
         val dp = resources.displayMetrics.density
-        val barHeight = (2 * dp).toInt() + (52 * dp).toInt() + (44 * dp).toInt()
+        val rowHeight = (52 * dp).toInt()
+        val guessHeight = (44 * dp).toInt()
+        keyRows.removeAllViews()
+        val barHeight = if (landscape) {
+            keyRows.orientation = LinearLayout.HORIZONTAL
+            keyRows.addView(guesses, LinearLayout.LayoutParams(0, rowHeight, 4f))
+            keyRows.addView(keys, LinearLayout.LayoutParams(0, rowHeight, 6f))
+            (2 * dp).toInt() + rowHeight
+        } else {
+            keyRows.orientation = LinearLayout.VERTICAL
+            keyRows.addView(keys, LinearLayout.LayoutParams(MATCH_PARENT, rowHeight))
+            keyRows.addView(guesses, LinearLayout.LayoutParams(MATCH_PARENT, guessHeight))
+            (2 * dp).toInt() + rowHeight + guessHeight
+        }
+        val boxHeight = if (landscape) {
+            (resources.displayMetrics.heightPixels * 0.3f).toInt().coerceIn((150 * dp).toInt(), (280 * dp).toInt())
+        } else {
+            (280 * dp).toInt()
+        }
         ink.transparent = fullScreen
         ink.onFingerTap = if (fullScreen) ({ setFullScreen(false) }) else null
         ink.layoutParams = if (fullScreen) {
             FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { bottomMargin = barHeight }
         } else {
-            FrameLayout.LayoutParams(MATCH_PARENT, (280 * dp).toInt()).apply { topMargin = barHeight }
+            FrameLayout.LayoutParams(MATCH_PARENT, boxHeight).apply { topMargin = barHeight }
         }
         bar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT,
             if (fullScreen) Gravity.BOTTOM else Gravity.TOP)
