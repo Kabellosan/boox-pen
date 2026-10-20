@@ -90,11 +90,9 @@ class PenIME : InputMethodService(), InkView.Listener {
     // Boox sends each page-button press only on release (down and up 1-3 ms apart),
     // sometimes 0.7 s after the previous one, and drops one of two very fast presses.
     private val pressGapMs = 900L
-    /**
-     * When a single press turns the page, a shorter wait for a second press, so
-     * page turns don't lag (doubles came about 0.2 s apart in the key log).
-     */
-    private val turnWaitMs = 400L
+    // When a single press turns the page, a shorter wait for a second press, so
+    // page turns don't lag (doubles came about 0.2 s apart in the key log). Set
+    // in Pen shortcuts.
     /** How far back from a page button's release tip taps count as done while holding it. */
     private val pageTapWindowMs = 1500L
     private val finishPress = Runnable {
@@ -400,7 +398,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         pressButton = button
         pressCount++
         val turns = shortcuts.action(press(button, double = false)) in Action.PAGE_TURNS
-        main.postDelayed(finishPress, if (turns) turnWaitMs else pressGapMs)
+        main.postDelayed(finishPress, if (turns) Shortcuts.turnWaitMs(this) else pressGapMs)
     }
 
     /** The Go 7's page buttons, as Boox sends them (volume keys) or as page keys. */

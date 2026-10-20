@@ -305,6 +305,16 @@ class Shortcuts(context: Context) {
     companion object {
         private const val GESTURES = "gestures"
         private const val LANG = "lang"
+        private const val TURN_WAIT = "turn_wait_ms"
+
+        /** Waits to choose from for a second press, when a single press turns the page. */
+        val TURN_WAITS = listOf(200L, 300L, 400L, 500L)
+
+        fun turnWaitMs(context: Context): Long =
+            context.getSharedPreferences("shortcuts", Context.MODE_PRIVATE).getLong(TURN_WAIT, 400L)
+
+        fun setTurnWaitMs(context: Context, ms: Long) =
+            context.getSharedPreferences("shortcuts", Context.MODE_PRIVATE).edit().putLong(TURN_WAIT, ms).apply()
 
         /** The language whose best guess is typed, shared by the keyboard and Pen Pad. */
         fun language(context: Context): String =

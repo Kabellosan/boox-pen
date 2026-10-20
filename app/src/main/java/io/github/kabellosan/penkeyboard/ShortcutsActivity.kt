@@ -68,12 +68,21 @@ class ShortcutsActivity : Activity() {
         for (t in PageTap.values()) {
             choice(t.label, shortcuts.action(t)) { shortcuts.setAction(t, it) }
         }
+        val wait = Shortcuts.turnWaitMs(this)
+        list.addView(row("Wait for a double press before turning the page:  %.1f s".format(wait / 1000f)) {
+            val waits = Shortcuts.TURN_WAITS
+            AlertDialog.Builder(this)
+                .setItems(waits.map { (if (it == wait) "✓ " else "") + "%.1f s".format(it / 1000f) }.toTypedArray()) { _, which ->
+                    Shortcuts.setTurnWaitMs(this, waits[which]); refresh()
+                }
+                .show()
+        })
+        list.addView(text("With a press set to Next page or Previous page, the page turns after this wait, so a " +
+            "double press doesn't turn it too. Shorter feels quicker; too short and a slow double counts as two turns.", 16f))
         list.addView(text("Hold a page button and tap with the tip outside the keyboard; it runs when you let go.", 16f))
-        list.addView(text("In apps you read in, keep Boox's Page turning: the buttons turn pages there " +
-            "and these shortcuts don't run.", 16f))
 
         section("Your gestures",
-            "Draw one with the pen's button held in the keyboard's empty writing area, or with the tip in Pad Launch.")
+            "Draw one with the pen's button held in the keyboard's empty writing area, or with the tip in command mode.")
         val gestures = shortcuts.gestures()
         if (gestures.isEmpty()) list.addView(text("(none yet)", 18f))
         for (g in gestures) {
