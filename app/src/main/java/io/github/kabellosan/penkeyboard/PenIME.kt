@@ -90,6 +90,11 @@ class PenIME : InputMethodService(), InkView.Listener {
     // Boox sends each page-button press only on release (down and up 1-3 ms apart),
     // sometimes 0.7 s after the previous one, and drops one of two very fast presses.
     private val pressGapMs = 900L
+    /**
+     * When a single press turns the page, a shorter wait for a second press, so
+     * page turns don't lag (doubles came about 0.2 s apart in the key log).
+     */
+    private val turnWaitMs = 400L
     /** How far back from a page button's release tip taps count as done while holding it. */
     private val pageTapWindowMs = 1500L
     private val finishPress = Runnable {
@@ -97,8 +102,6 @@ class PenIME : InputMethodService(), InkView.Listener {
         val double = pressCount >= 2
         pressButton = null
         pressCount = 0
-        // A single press that turned the page has already run.
-        if (!double && shortcuts.action(press(button, false)) in Action.PAGE_TURNS) return@Runnable
         runPress(press(button, double))
     }
 
@@ -326,8 +329,8 @@ class PenIME : InputMethodService(), InkView.Listener {
      * Boox sends a press only when the button is let go, down and up together.
      * After two or three tip taps a press is a [PageTap]; otherwise it is swallowed
      * (so the volume doesn't change) and counted toward a press or double press.
-     * A single press set to turn the page does so at once: a page key (Boox's Page
-     * turning mode) goes on to the app, a volume key becomes a swipe by the helper.
+     * A single press set to turn the page waits only briefly for a second press,
+     * then sends the app a page key (see [turnPage]).
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val button = pageButton(keyCode)?.takeIf(shortcuts::usesPageButton) ?: return super.onKeyDown(keyCode, event)
@@ -340,24 +343,6 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (pressButton != null && pressButton != button) finishPress.run()
         takenKey = keyCode
         countOnUp = !pageTaps(button)
-        // A page turn on a single press happens at once, not after waiting to see
-        // whether a second press follows; a second press still makes a double.
-        val turn = shortcuts.action(press(button, double = false)).takeIf { it in Action.PAGE_TURNS }
-        if (countOnUp && pressButton == null && turn != null) {
-            countOnUp = false
-            pressButton = button
-            pressCount = 1
-            main.postDelayed(finishPress, pressGapMs)
-            // Boox already made it a page key (Page turning mode): let the app have it.
-            if (keyCode == KeyEvent.KEYCODE_PAGE_UP || keyCode == KeyEvent.KEYCODE_PAGE_DOWN) {
-                takenKey = 0
-                PenButtonProbe.record(this, "  passed on to the app as a page turn")
-                return super.onKeyDown(keyCode, event)
-            }
-            PenButtonProbe.record(this, "  ${turn.label(packageManager)} (helper swipe)")
-            perform(turn)
-            return true
-        }
         if (isInputViewShown) flushThen {}
         return true
     }
@@ -414,7 +399,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         main.removeCallbacks(finishPress)
         pressButton = button
         pressCount++
-        main.postDelayed(finishPress, pressGapMs)
+        val turns = shortcuts.action(press(button, double = false)) in Action.PAGE_TURNS
+        main.postDelayed(finishPress, if (turns) turnWaitMs else pressGapMs)
     }
 
     /** The Go 7's page buttons, as Boox sends them (volume keys) or as page keys. */
@@ -528,6 +514,7 @@ class PenIME : InputMethodService(), InkView.Listener {
             Action.HIDE_KEYBOARD -> flushThen { requestHideSelf(0) }
             Action.SHOW_KEYBOARD -> showKeyboard(commands = false)
             Action.QUICK_NOTE -> flushThen { BooxTools.openQuickNote(this) }
+            in Action.PAGE_TURNS -> turnPage(action)
             in Action.FIELD -> flushThen { fieldAction(action) }
             in Action.GLOBAL -> flushThen {
                 if (PenButtonProbe.instance?.globalAction(action) != true) {
@@ -630,6 +617,21 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (command.action == Action.BACK) { goBack(); return }
         requestHideSelf(0)
         main.postDelayed({ performNow(command.action) }, 150)
+    }
+
+    /**
+     * Sends the app a page key through the keyboard's connection to it, as Boox
+     * would have; with no connection the helper swipes the page instead.
+     */
+    private fun turnPage(action: Action) {
+        val code = if (action == Action.NEXT_PAGE) KeyEvent.KEYCODE_PAGE_DOWN else KeyEvent.KEYCODE_PAGE_UP
+        val ic = currentInputConnection
+        val now = SystemClock.uptimeMillis()
+        val sent = ic != null && ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0)) &&
+            ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0))
+        if (sent) { PenButtonProbe.record(this, "  page key sent to the app"); return }
+        val swiped = PenButtonProbe.instance?.globalAction(action) == true
+        PenButtonProbe.record(this, if (swiped) "  no connection, helper swiped" else "  couldn't turn the page")
     }
 
     /** Undo, cursor moves and the clipboard, done by the app's own text field. */
