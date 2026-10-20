@@ -47,6 +47,8 @@ data class Action(val code: String) {
         PEN_SCROLL -> "Pen scroll on/off"
         SCROLL_UP -> "Scroll up"
         SCROLL_DOWN -> "Scroll down"
+        NEXT_PAGE -> "Next page"
+        PREVIOUS_PAGE -> "Previous page"
         else -> if (BooxTools.isTool(this)) BooxTools.label(this) else app?.let { c ->
             val name = runCatching { pm.getActivityInfo(c, 0).loadLabel(pm).toString() }.getOrNull()
             "Open ${name ?: c.packageName}"
@@ -82,18 +84,24 @@ data class Action(val code: String) {
         val PEN_SCROLL = Action("pen_scroll")
         val SCROLL_UP = Action("scroll_up")
         val SCROLL_DOWN = Action("scroll_down")
+        val NEXT_PAGE = Action("next_page")
+        val PREVIOUS_PAGE = Action("previous_page")
         val BUILT_IN = listOf(
             NONE, SEND, NEW_LINE, COMMA, PERIOD, LANG, QUICK_PAD, PEN_PAD, FULL_SCREEN, HIDE_KEYBOARD, SHOW_KEYBOARD,
             DELETE_WORD, UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE,
             BACK, HOME, RECENTS, NOTIFICATIONS, SCREENSHOT, QUICK_NOTE,
-            PEN_SCROLL, SCROLL_UP, SCROLL_DOWN,
+            PEN_SCROLL, SCROLL_UP, SCROLL_DOWN, NEXT_PAGE, PREVIOUS_PAGE,
         )
 
         /** Edits on the text field, done the same way wherever the shortcut came from. */
         val FIELD = setOf(UNDO, CURSOR_START, CURSOR_END, SELECT_ALL, COPY, PASTE)
 
         /** Android's own buttons and two-finger scrolling, done by the helper. */
-        val GLOBAL = setOf(HOME, RECENTS, NOTIFICATIONS, SCREENSHOT, PEN_SCROLL, SCROLL_UP, SCROLL_DOWN)
+        val GLOBAL = setOf(HOME, RECENTS, NOTIFICATIONS, SCREENSHOT, PEN_SCROLL, SCROLL_UP, SCROLL_DOWN,
+            NEXT_PAGE, PREVIOUS_PAGE)
+
+        /** Page turns: on a page button's single press they happen at once. */
+        val PAGE_TURNS = setOf(NEXT_PAGE, PREVIOUS_PAGE)
         fun openApp(c: ComponentName) = Action(APP + c.flattenToString())
 
         fun launchIntent(c: ComponentName): Intent = Intent(Intent.ACTION_MAIN)

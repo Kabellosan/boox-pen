@@ -298,7 +298,7 @@ class PenButtonProbe : AccessibilityService() {
     val penScroll by lazy { PenScroll(this) }
 
     /**
-     * Presses Home, Recents, the notifications, takes a screenshot, or scrolls.
+     * Presses Home, Recents, the notifications, takes a screenshot, scrolls, or turns a page.
      * False if it couldn't.
      */
     fun globalAction(action: Action): Boolean {
@@ -307,6 +307,7 @@ class PenButtonProbe : AccessibilityService() {
             Action.PEN_SCROLL -> return true.also { penScroll.toggle() }
             Action.SCROLL_UP -> return true.also { penScroll.scrollBy(0f, height) }
             Action.SCROLL_DOWN -> return true.also { penScroll.scrollBy(0f, -height) }
+            Action.NEXT_PAGE, Action.PREVIOUS_PAGE -> return turnPage(action == Action.NEXT_PAGE)
             Action.HOME -> GLOBAL_ACTION_HOME
             Action.RECENTS -> GLOBAL_ACTION_RECENTS
             Action.NOTIFICATIONS -> GLOBAL_ACTION_NOTIFICATIONS
@@ -314,6 +315,17 @@ class PenButtonProbe : AccessibilityService() {
             else -> return false
         }
         return performGlobalAction(global)
+    }
+
+    /** A one-finger swipe across the middle of the screen, as you'd turn a page by hand. */
+    private fun turnPage(forward: Boolean): Boolean {
+        val m = resources.displayMetrics
+        val y = m.heightPixels * 0.5f
+        val (from, to) = if (forward) m.widthPixels * 0.8f to m.widthPixels * 0.2f
+            else m.widthPixels * 0.2f to m.widthPixels * 0.8f
+        val path = android.graphics.Path().apply { moveTo(from, y); lineTo(to, y) }
+        return dispatchGesture(android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(path, 0, 120)).build(), null, null)
     }
 
     /**

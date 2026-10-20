@@ -97,6 +97,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         val double = pressCount >= 2
         pressButton = null
         pressCount = 0
+        // A single press that turned the page has already run.
+        if (!double && shortcuts.action(press(button, false)) in Action.PAGE_TURNS) return@Runnable
         runPress(press(button, double))
     }
 
@@ -324,8 +326,8 @@ class PenIME : InputMethodService(), InkView.Listener {
      * Boox sends a press only when the button is let go, down and up together.
      * After two or three tip taps a press is a [PageTap]; otherwise it is swallowed
      * (so the volume doesn't change) and counted toward a press or double press.
-     * Apps that turn pages with the buttons are set to Page turning in Boox, which
-     * never sends us their presses, so they are left alone either way.
+     * A single press set to turn the page does so at once: a page key (Boox's Page
+     * turning mode) goes on to the app, a volume key becomes a swipe by the helper.
      */
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val button = pageButton(keyCode)?.takeIf(shortcuts::usesPageButton) ?: return super.onKeyDown(keyCode, event)
@@ -338,6 +340,24 @@ class PenIME : InputMethodService(), InkView.Listener {
         if (pressButton != null && pressButton != button) finishPress.run()
         takenKey = keyCode
         countOnUp = !pageTaps(button)
+        // A page turn on a single press happens at once, not after waiting to see
+        // whether a second press follows; a second press still makes a double.
+        val turn = shortcuts.action(press(button, double = false)).takeIf { it in Action.PAGE_TURNS }
+        if (countOnUp && pressButton == null && turn != null) {
+            countOnUp = false
+            pressButton = button
+            pressCount = 1
+            main.postDelayed(finishPress, pressGapMs)
+            // Boox already made it a page key (Page turning mode): let the app have it.
+            if (keyCode == KeyEvent.KEYCODE_PAGE_UP || keyCode == KeyEvent.KEYCODE_PAGE_DOWN) {
+                takenKey = 0
+                PenButtonProbe.record(this, "  passed on to the app as a page turn")
+                return super.onKeyDown(keyCode, event)
+            }
+            PenButtonProbe.record(this, "  ${turn.label(packageManager)} (helper swipe)")
+            perform(turn)
+            return true
+        }
         if (isInputViewShown) flushThen {}
         return true
     }
