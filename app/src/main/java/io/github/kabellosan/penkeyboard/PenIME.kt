@@ -68,7 +68,10 @@ class PenIME : InputMethodService(), InkView.Listener {
     private var hiddenAt = 0L
     /** A turn and the keyboard closing this close together count as one. */
     private val turnGraceMs = 2000L
-    private val reopen = Runnable { if (!isInputViewShown) showKeyboard(wasCommandMode) }
+    /** The app whose field the keyboard was typing into when it closed. */
+    private var turnPackage: String? = null
+    private var reopenTries = 0
+    private val reopen = Runnable { reopenAfterTurn() }
     private val forgetTurn = Runnable { restorePending = false }
 
     /** The whole screen is the writing area, the app showing through it. */
@@ -244,10 +247,31 @@ class PenIME : InputMethodService(), InkView.Listener {
         main.postDelayed(forgetTurn, 5000)
     }
 
-    /** After the app has restarted and focused its field again. */
+    /** After the app has rebuilt its screen. */
     private fun reopenSoon() {
+        reopenTries = 0
         main.removeCallbacks(reopen)
         main.postDelayed(reopen, 700)
+    }
+
+    /**
+     * Apps rebuilt for a turn rarely put the cursor back in their field, so the
+     * helper taps into it and the app opens the keyboard as usual. Command mode
+     * needs no field. With no field found (yet), try again, then stay closed.
+     */
+    private fun reopenAfterTurn() {
+        if (isInputViewShown) return
+        if (wasCommandMode) { showKeyboard(true); return }
+        val tapped = PenButtonProbe.instance?.refocusField(turnPackage) == true
+        if (tapped) {
+            PenButtonProbe.record(this, "Screen turned: tapped back into the text field")
+            main.postDelayed({ if (!isInputViewShown && hasField()) requestShowSelf(0) }, 400)
+        } else if (++reopenTries < 3) {
+            main.postDelayed(reopen, 500)
+        } else {
+            val why = if (PenButtonProbe.instance == null) "helper off" else "no text field found"
+            PenButtonProbe.record(this, "Screen turned: keyboard not reopened ($why)")
+        }
     }
 
     private fun restoreAfterTurn() {
@@ -376,6 +400,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     override fun onWindowHidden() {
         summoned = null
         if (!restorePending) wasCommandMode = commandMode
+        turnPackage = currentInputEditorInfo?.packageName
         hiddenAt = SystemClock.uptimeMillis()
         // Closed by the app restarting for a screen turn: open again.
         if (hiddenAt - turnedAt < turnGraceMs) {

@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -365,6 +366,28 @@ class PenButtonProbe : AccessibilityService() {
         if (pkg != null && root.packageName?.toString() != pkg) return false
         val button = findSend(root) ?: return false
         return button.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+    }
+
+    /**
+     * After a screen turn rebuilt [pkg]'s screen: taps back into its text field,
+     * the focused one or else the lowest one on screen (a chat's message box), so
+     * the app opens the keyboard on it again. False if there is none.
+     */
+    fun refocusField(pkg: String?): Boolean {
+        val root = rootInActiveWindow ?: return false
+        if (pkg != null && root.packageName?.toString() != pkg) return false
+        val field = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable }
+            ?: editables(root).maxByOrNull { Rect().also(it::getBoundsInScreen).bottom }
+            ?: return false
+        field.performAction(AccessibilityNodeInfo.ACTION_FOCUS)
+        return field.performAction(AccessibilityNodeInfo.ACTION_CLICK) || field.isFocused
+    }
+
+    private fun editables(n: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
+        val found = ArrayList<AccessibilityNodeInfo>()
+        if (n.isEditable && n.isVisibleToUser && n.isEnabled) found.add(n)
+        for (i in 0 until n.childCount) n.getChild(i)?.let { found.addAll(editables(it)) }
+        return found
     }
 
     private fun findSend(n: AccessibilityNodeInfo): AccessibilityNodeInfo? {
