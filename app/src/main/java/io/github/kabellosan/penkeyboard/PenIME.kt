@@ -56,9 +56,20 @@ class PenIME : InputMethodService(), InkView.Listener {
     private lateinit var keys: LinearLayout
     private lateinit var guesses: HorizontalScrollView
 
-    /** Full screen and command mode to bring back after the screen turns. */
-    private var restoreFullScreen = false
-    private var restoreCommandMode = false
+    /**
+     * Turning the screen restarts most apps, which closes the keyboard. What was
+     * open is kept here and brought back when the keyboard reopens after a turn.
+     */
+    private var wasFullScreen = false
+    private var wasCommandMode = false
+    private var restorePending = false
+    private var orientation = Configuration.ORIENTATION_UNDEFINED
+    private var turnedAt = 0L
+    private var hiddenAt = 0L
+    /** A turn and the keyboard closing this close together count as one. */
+    private val turnGraceMs = 2000L
+    private val reopen = Runnable { if (!isInputViewShown) showKeyboard(wasCommandMode) }
+    private val forgetTurn = Runnable { restorePending = false }
 
     /** The whole screen is the writing area, the app showing through it. */
     private var fullScreen = false
@@ -131,6 +142,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         recognizer = Recognizer()
         recognizer.downloadAll()
         shortcuts = Shortcuts(this)
+        orientation = resources.configuration.orientation
         activeLang = Shortcuts.language(this)
         buttonGestures = ButtonGestures(10 * resources.displayMetrics.density,
             { trigger -> perform(shortcuts.action(trigger)) },
@@ -192,53 +204,59 @@ class PenIME : InputMethodService(), InkView.Listener {
         root.addView(bar)
         fullScreen = false
         layOut()
-        if (restoreFullScreen || restoreCommandMode) {
-            val full = restoreFullScreen
-            val commands = restoreCommandMode
-            restoreFullScreen = false
-            restoreCommandMode = false
-            root.post { restoreAfterTurn(full, commands) }
-        }
+        root.post { restoreAfterTurn() }
         return root
     }
 
     /**
-     * The screen turned: Android throws the keyboard's views away and builds new
-     * ones. Type any waiting ink and shut the old ink layer down first (left open,
-     * its raw drawing kept the old place on screen), then bring back full screen
-     * and command mode in the new views.
+     * The screen turned. Android throws the keyboard's views away and builds new
+     * ones, and most apps restart, which closes the keyboard (the two can come in
+     * either order). Type any waiting ink and shut the old ink layer down (left
+     * open, its raw drawing kept the old place on screen), reopen the keyboard if
+     * it closed, and bring back full screen and command mode.
      */
     override fun onConfigurationChanged(newConfig: Configuration) {
-        if (hasView && isInputViewShown) {
+        val turned = newConfig.orientation != orientation
+        orientation = newConfig.orientation
+        val open = hasView && isInputViewShown
+        if (turned && open) {
             main.removeCallbacks(commitRunnable)
             if (!commandMode && ink.strokes.isNotEmpty()) recognizeAndCommit() else ink.clear()
-            restoreFullScreen = fullScreen
-            restoreCommandMode = commandMode
+            remember(fullScreen, commandMode)
             ink.stopPen()
         }
         super.onConfigurationChanged(newConfig)
-        // Some versions keep the old views when nothing they care about changed.
-        if (restoreFullScreen || restoreCommandMode) {
-            main.post {
-                if (restoreFullScreen || restoreCommandMode) {
-                    val full = restoreFullScreen
-                    val commands = restoreCommandMode
-                    restoreFullScreen = false
-                    restoreCommandMode = false
-                    restoreAfterTurn(full, commands)
-                }
-            }
-        } else if (hasView) {
-            main.post { if (isInputViewShown) ink.startPen(force = true) }
+        if (!turned) return
+        turnedAt = SystemClock.uptimeMillis()
+        if (open) {
+            main.post { restoreAfterTurn() }
+        } else if (turnedAt - hiddenAt < turnGraceMs) {
+            remember(wasFullScreen, wasCommandMode)
+            reopenSoon()
         }
     }
 
-    private fun restoreAfterTurn(full: Boolean, commands: Boolean) {
-        if (!hasView || !isInputViewShown) return
+    private fun remember(full: Boolean, commands: Boolean) {
+        wasFullScreen = full
+        wasCommandMode = commands
+        restorePending = true
+        main.removeCallbacks(forgetTurn)
+        main.postDelayed(forgetTurn, 5000)
+    }
+
+    /** After the app has restarted and focused its field again. */
+    private fun reopenSoon() {
+        main.removeCallbacks(reopen)
+        main.postDelayed(reopen, 700)
+    }
+
+    private fun restoreAfterTurn() {
+        if (!restorePending || !hasView || !isInputViewShown) return
+        restorePending = false
         // The new views show the box's keys; command mode needs its Close key back.
-        if (commands) setCommandMode(true)
-        if (full != fullScreen) {
-            fullScreen = full
+        if (wasCommandMode) setCommandMode(true)
+        if (wasFullScreen != fullScreen) {
+            fullScreen = wasFullScreen
             layOut()
         }
         ink.postDelayed({ if (isInputViewShown) ink.startPen(force = true) }, 300)
@@ -268,7 +286,7 @@ class PenIME : InputMethodService(), InkView.Listener {
             (2 * dp).toInt() + rowHeight + guessHeight
         }
         val boxHeight = if (landscape) {
-            (resources.displayMetrics.heightPixels * 0.3f).toInt().coerceIn((150 * dp).toInt(), (280 * dp).toInt())
+            (resources.displayMetrics.heightPixels * 0.4f).toInt().coerceIn((150 * dp).toInt(), (280 * dp).toInt())
         } else {
             (280 * dp).toInt()
         }
@@ -320,6 +338,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         enterKey.text = if (sendsAction(info)) "Send" else "⏎"
         ink.post { ink.startPen() }
         shown = true
+        main.post { restoreAfterTurn() }
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
@@ -328,6 +347,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         main.removeCallbacks(repeatDelete)
         ink.stopPen()
         ink.clear()
+        if (!restorePending) wasFullScreen = fullScreen
         // Next time, in whatever app, the keyboard opens as the box again.
         if (fullScreen) { fullScreen = false; layOut() }
         super.onFinishInputView(finishingInput)
@@ -350,10 +370,18 @@ class PenIME : InputMethodService(), InkView.Listener {
             ink.post { ink.startPen() }
             shown = true
         }
+        main.post { restoreAfterTurn() }
     }
 
     override fun onWindowHidden() {
         summoned = null
+        if (!restorePending) wasCommandMode = commandMode
+        hiddenAt = SystemClock.uptimeMillis()
+        // Closed by the app restarting for a screen turn: open again.
+        if (hiddenAt - turnedAt < turnGraceMs) {
+            remember(wasFullScreen, wasCommandMode)
+            reopenSoon()
+        }
         if (commandMode) setCommandMode(false)
         if (shown && hasView) {
             ink.stopPen()
