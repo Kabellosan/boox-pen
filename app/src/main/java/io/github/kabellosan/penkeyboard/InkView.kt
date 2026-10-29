@@ -46,6 +46,9 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     /** See-through: no white page or baseline, so the app underneath shows (Pen Pad). */
     var transparent = false
 
+    /** A white page with a dot grid, edge to edge (full screen's paper look). */
+    var dotted = false
+
     /**
      * Set while the ink covers the whole screen: a finger tap anywhere on it runs
      * this (leaves full screen). The pen still writes.
@@ -90,6 +93,14 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         strokeWidth = 2f * resources.displayMetrics.density
         isAntiAlias = true
     }
+    private val dots = Paint().apply {
+        color = Color.DKGRAY
+        strokeWidth = 2.5f * resources.displayMetrics.density
+        strokeCap = Paint.Cap.ROUND
+        isAntiAlias = true
+    }
+    /** About 5 mm on the Go 7, like a dotted notebook. */
+    private val dotGap = 32f * resources.displayMetrics.density
     private val frameInset = 6f * resources.displayMetrics.density
     private val frameRadius = 8f * resources.displayMetrics.density
 
@@ -148,7 +159,8 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
 
     /** Starts pen capture. Call when the keyboard is shown and laid out. */
     fun startPen(force: Boolean = false) {
-        if (!isBoox || width == 0) return
+        // Hidden (the keyboard pulled down to slim): raw drawing would ink over the app.
+        if (!isBoox || width == 0 || visibility != VISIBLE) return
         // Re-opening raw drawing that is already ours resets the SDK mid-word and
         // joins strokes with straight lines, so only do it when asked to.
         if (!force && owner === this && penOn) return
@@ -192,7 +204,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
      */
     private fun writingRect(): Rect {
         val r = Rect().also { getLocalVisibleRect(it) }
-        if (!transparent) {
+        if (!transparent && !dotted) {
             val i = (frameInset + frame.strokeWidth + 2 * resources.displayMetrics.density).toInt()
             r.inset(i, i)
         }
@@ -336,7 +348,10 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (!transparent) {
+        if (dotted) {
+            canvas.drawColor(Color.WHITE)
+            canvas.drawPoints(dotGrid(), dots)
+        } else if (!transparent) {
             canvas.drawColor(Color.WHITE)
             val half = frame.strokeWidth / 2
             val box = RectF(frameInset + half, frameInset + half, width - frameInset - half, height - frameInset - half)
@@ -355,6 +370,27 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
             }
             canvas.drawPath(path, paint)
         }
+    }
+
+    private var grid = FloatArray(0)
+    private var gridSize = 0L
+
+    /** The dot centres for this size, centred so the margins match. */
+    private fun dotGrid(): FloatArray {
+        val size = (width.toLong() shl 32) or height.toLong()
+        if (size == gridSize) return grid
+        val cols = (width / dotGap).toInt()
+        val rows = (height / dotGap).toInt()
+        val left = (width - (cols - 1) * dotGap) / 2
+        val top = (height - (rows - 1) * dotGap) / 2
+        grid = FloatArray(2 * cols * rows)
+        var i = 0
+        for (r in 0 until rows) for (c in 0 until cols) {
+            grid[i++] = left + c * dotGap
+            grid[i++] = top + r * dotGap
+        }
+        gridSize = size
+        return grid
     }
 
     /** The eraser end of the pen, or the side button held down. */
