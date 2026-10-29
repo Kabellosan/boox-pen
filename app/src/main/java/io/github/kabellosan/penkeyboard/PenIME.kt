@@ -35,7 +35,8 @@ import android.widget.TextView
  *
  * Full screen turns the whole screen above the keys into a see-through writing
  * area over the app, like the Boox keyboard's, with the keys, delete, the cursor
- * slide and the button shortcuts all still working. A finger tap goes back.
+ * slide and the button shortcuts all still working. Fingers and a resting palm
+ * are ignored there; Box or a pull down goes back.
  * Long-press Full to switch its page between see-through and a white dot grid.
  *
  * Pull the bar of keys up or down: slim (keys only) ↔ box ↔ full screen, and
@@ -174,7 +175,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         val dp = resources.displayMetrics.density
         // See-through, so the app shows wherever the bar and the box aren't.
         val root = FrameLayout(this)
-        bar = PullBar(this, ::pull).apply {
+        bar = PullBar(this, ::pull, ::palmGuard).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.WHITE)
         }
@@ -334,7 +335,6 @@ class PenIME : InputMethodService(), InkView.Listener {
         ink.visibility = if (slim) View.GONE else View.VISIBLE
         ink.transparent = fullScreen
         ink.dotted = fullScreen && Shortcuts.dottedPage(this)
-        ink.onFingerTap = if (fullScreen) ({ setFullScreen(false) }) else null
         ink.layoutParams = if (fullScreen) {
             FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { bottomMargin = barHeight }
         } else {
@@ -500,14 +500,28 @@ class PenIME : InputMethodService(), InkView.Listener {
     // ── Pen events ──────────────────────────────────────────────────
 
     override fun onStrokeStart() {
+        penAt = SystemClock.uptimeMillis()
         buttonGestures.flush()
         main.removeCallbacks(commitRunnable)
     }
 
     override fun onStrokeEnd() {
+        penAt = SystemClock.uptimeMillis()
         main.removeCallbacks(commitRunnable)
         main.postDelayed(commitRunnable, commitDelayMs)
     }
+
+    /** When the pen last touched down or lifted in the writing area. */
+    private var penAt = 0L
+
+    /**
+     * While writing, a hand resting on the keys must not press them: finger
+     * touches on the bar are ignored during a stroke and for a moment after.
+     */
+    private fun palmGuard(): Boolean =
+        hasView && (ink.drawing || SystemClock.uptimeMillis() - penAt < palmGuardMs)
+
+    private val palmGuardMs = 1500L
 
     /** A line break, without the space we put after the last word. */
     private fun newLine() {
@@ -617,6 +631,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     private val slideStepPx get() = 12 * resources.displayMetrics.density
 
     override fun onEraseStart() {
+        penAt = SystemClock.uptimeMillis()
         if (!buttonGestures.takeTap()) return
         sliding = true
         slideX = Float.NaN
@@ -636,6 +651,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     }
 
     override fun onErase(path: Stroke, durationMs: Long) {
+        penAt = SystemClock.uptimeMillis()
         if (sliding) {
             // Firmware that sends no live moves gets the whole slide at the end.
             onEraseMove(path)
