@@ -97,6 +97,14 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     private val commitRunnable = Runnable { recognizeAndCommit() }
 
+    /** Guesses for words already in the field: their own handwriting guesses, and spellings. */
+    private lateinit var words: WordMemory
+    private lateinit var spell: SpellCheck
+    /** The word or selection the guesses are about now; null while they are for fresh ink. */
+    private var target: FieldText? = null
+    private var targetAsk = 0
+    private val lookAtCursor = Runnable { suggestForCursor() }
+
     /** Side button held + taps, a press, or a drawn shape: actions set in Pen shortcuts. */
     private lateinit var buttonGestures: ButtonGestures
     private lateinit var shortcuts: Shortcuts
@@ -144,6 +152,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         instance = this
         recognizer = Recognizer()
         recognizer.downloadAll()
+        words = WordMemory(this)
+        spell = SpellCheck(this, recognizer.languages)
         shortcuts = Shortcuts(this)
         orientation = resources.configuration.orientation
         activeLang = Shortcuts.language(this)
@@ -157,6 +167,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         shown = false
         instance = null
         recognizer.close()
+        spell.close()
         super.onDestroy()
     }
 
@@ -827,6 +838,7 @@ class PenIME : InputMethodService(), InkView.Listener {
                         PenButtonProbe.record(this, "Ink: ${strokes.size} stroke(s), read \"$read\" ($codes), typed \"$best\"")
                     }
                     if (best != null) commitWord(best, pre)
+                    if (best != null && best == read && best.any { it.isLetter() }) words.remember(results)
                     if (best == read && read != null && read.count { it.isLetter() } >= 2) learnWordHeight(strokes)
                     showCandidates(results, Punctuation.markChoices(best), best)
                     then?.invoke()
@@ -887,6 +899,85 @@ class PenIME : InputMethodService(), InkView.Listener {
         } else {
             commit("$word ", remember = true)
         }
+    }
+
+    // ── Guesses for text already in the field ───────────────────────
+
+    /** The cursor moved or text was selected: once it settles, offer guesses for what it touches. */
+    override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int,
+                                   candidatesStart: Int, candidatesEnd: Int) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        if (!hasView || !shown || commandMode) return
+        main.removeCallbacks(lookAtCursor)
+        main.postDelayed(lookAtCursor, 300)
+    }
+
+    /** What the cursor touches or what is selected, if anything. */
+    private fun findTarget(): FieldText? {
+        val ic = currentInputConnection ?: return null
+        val selected = ic.getSelectedText(0)?.toString()
+        if (!selected.isNullOrEmpty()) return if (selected.length <= 300) FieldText.ofSelection(selected) else null
+        val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return null
+        val after = ic.getTextAfterCursor(48, 0)?.toString() ?: ""
+        return FieldText.atCursor(before, after)
+    }
+
+    private fun suggestForCursor() {
+        if (!hasView || !shown || commandMode || ink.strokes.isNotEmpty()) return
+        val ic = currentInputConnection ?: return
+        // Still right after the word just written: its own guesses stay.
+        val last = lastCommitted
+        if (target == null && last != null && ic.getSelectedText(0).isNullOrEmpty() &&
+            ic.getTextBeforeCursor(last.length, 0)?.toString() == last) return
+        val t = findTarget()
+        if (t == target) return
+        target = t
+        val ask = ++targetAsk
+        if (t == null) { showCandidates(emptyMap()); return }
+        // Handwriting guesses kept from when it was written come first, then spellings.
+        val remembered = words.lookup(t.core)
+        val spelled = HashMap<String, List<String>>()
+        for (lang in recognizer.languages) {
+            spell.ask(lang, t.core) { found ->
+                if (ask != targetAsk || commandMode || ink.strokes.isNotEmpty()) return@ask
+                spelled[lang] = found
+                if (spelled.size == recognizer.languages.size) showTargetGuesses(t, remembered, spelled)
+            }
+        }
+    }
+
+    /** The target in grey, then its guesses: remembered, spelled, other capitals. */
+    private fun showTargetGuesses(t: FieldText, remembered: Map<String, List<String>>, spelled: Map<String, List<String>>) {
+        candidateRow.removeAllViews()
+        val label = if (t.core.length > 18) t.core.take(16) + "…" else t.core
+        candidateRow.addView(key("$label ›") {}.apply { setTextColor(Color.GRAY); isClickable = false },
+            LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        val ordered = listOf(activeLang) + recognizer.languages.filter { it != activeLang }
+        val seen = hashSetOf(t.core)
+        fun add(c: String, lang: String?) {
+            if (!seen.add(c)) return
+            val text = if (lang == null || lang == activeLang) c else "$c·$lang"
+            candidateRow.addView(key(text) { replaceTarget(t, c) }, LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        }
+        for (lang in ordered) remembered[lang].orEmpty().take(4).forEach { add(it, lang) }
+        for (lang in ordered) spelled[lang].orEmpty().take(4).forEach { add(it, lang) }
+        FieldText.caseVariants(t.core).forEach { add(it, null) }
+        if (candidateRow.childCount == 1) {
+            candidateRow.addView(key("no guesses") {}.apply { setTextColor(Color.GRAY); isClickable = false },
+                LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        }
+    }
+
+    /** Puts [word] in place of the target, keeping the marks around it. */
+    private fun replaceTarget(t: FieldText, word: String) {
+        val ic = currentInputConnection ?: return
+        // The text moved on since the guesses were shown: show guesses for what is there now.
+        if (findTarget() != t) { target = null; suggestForCursor(); return }
+        lastCommitted = null
+        ic.beginBatchEdit()
+        if (!t.selection) ic.deleteSurroundingText(t.before, t.after)
+        ic.commitText(t.prefix + word + t.suffix, 1)
+        ic.endBatchEdit()
     }
 
     /** Takes out the space between the word just written and the word before it. */
@@ -1012,6 +1103,8 @@ class PenIME : InputMethodService(), InkView.Listener {
     /** Shows a short note in the candidate row. */
     private fun showMessage(text: String) {
         if (!hasView) return
+        target = null
+        targetAsk++
         candidateRow.removeAllViews()
         candidateRow.addView(TextView(this).apply {
             this.text = text
@@ -1028,6 +1121,8 @@ class PenIME : InputMethodService(), InkView.Listener {
      * guesses, then the other language's. The one typed, [best], is bold.
      */
     private fun showCandidates(results: Map<String, List<String>>, marks: List<String> = emptyList(), best: String? = null) {
+        target = null
+        targetAsk++
         candidateRow.removeAllViews()
         val ordered = listOf(activeLang) + recognizer.languages.filter { it != activeLang }
         val seen = HashSet<String>()
