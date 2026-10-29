@@ -39,8 +39,8 @@ import android.widget.TextView
  * are ignored there; Box or a pull down goes back.
  * Long-press Full to switch its page between see-through and a white dot grid.
  *
- * Pull the bar of keys up or down: slim (keys only) ↔ box ↔ full screen, and
- * down from slim closes the keyboard.
+ * Pull the bar of keys up or down: slim (keys only) ↔ box ↔ tall (two thirds of
+ * the screen) ↔ full screen, and down from slim closes the keyboard.
  *
  * Summoned where there is no text field, it opens in command mode: write an app
  * name or an action ("back", "home"…) and it runs.
@@ -84,6 +84,9 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     /** Pulled down: only the keys, no writing box, so the app gets the screen. */
     private var slim = false
+
+    /** Pulled up: the keys over a page two thirds of the screen high. */
+    private var tall = false
 
     /**
      * Command mode: summoned with no text field (or asked for), so a written word
@@ -188,7 +191,7 @@ class PenIME : InputMethodService(), InkView.Listener {
             addView(View(context).apply { setBackgroundColor(Color.DKGRAY) },
                 FrameLayout.LayoutParams((48 * dp).toInt(), (4 * dp).toInt(), Gravity.CENTER))
             // A tap on the grip of the slim bar brings the box back.
-            setOnClickListener { if (slim) setSlim(false) }
+            setOnClickListener { if (slim) setSize(Size.BOX) }
         }, LinearLayout.LayoutParams(MATCH_PARENT, (gripDp * dp).toInt()))
 
         keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -222,6 +225,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         root.addView(bar)
         fullScreen = false
         slim = false
+        tall = false
         layOut()
         root.post { restoreAfterTurn() }
         return root
@@ -327,14 +331,16 @@ class PenIME : InputMethodService(), InkView.Listener {
             if (!slim) keyRows.addView(guesses, LinearLayout.LayoutParams(MATCH_PARENT, guessHeight))
             ruleHeight + rowHeight + if (slim) 0 else guessHeight
         }
-        val boxHeight = if (landscape) {
+        val boxHeight = if (tall) {
+            resources.displayMetrics.heightPixels * 2 / 3 - barHeight
+        } else if (landscape) {
             (resources.displayMetrics.heightPixels * 0.4f).toInt().coerceIn((150 * dp).toInt(), (280 * dp).toInt())
         } else {
             (280 * dp).toInt()
         }
         ink.visibility = if (slim) View.GONE else View.VISIBLE
         ink.transparent = fullScreen
-        ink.dotted = fullScreen && Shortcuts.dottedPage(this)
+        ink.dotted = (fullScreen || tall) && Shortcuts.dottedPage(this)
         ink.layoutParams = if (fullScreen) {
             FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { bottomMargin = barHeight }
         } else {
@@ -346,55 +352,54 @@ class PenIME : InputMethodService(), InkView.Listener {
         ink.invalidate()
     }
 
+    private enum class Size { SLIM, BOX, TALL, FULL }
+
+    private val size get() = when {
+        slim -> Size.SLIM
+        tall -> Size.TALL
+        fullScreen -> Size.FULL
+        else -> Size.BOX
+    }
+
     /** Switches full-screen writing on or off, typing any waiting ink first. */
-    private fun setFullScreen(on: Boolean) {
-        if (!hasView || !isInputViewShown || on == fullScreen) return
+    private fun setFullScreen(on: Boolean) = setSize(if (on) Size.FULL else Size.BOX)
+
+    /**
+     * Slim (only the keys, the box and its pen off), box, tall or full screen.
+     * Waiting ink is typed first.
+     */
+    private fun setSize(to: Size) {
+        if (!hasView || !isInputViewShown || to == size) return
         flushThen {
-            fullScreen = on
-            if (on) slim = false
+            slim = to == Size.SLIM
+            tall = to == Size.TALL
+            fullScreen = to == Size.FULL
+            if (slim) ink.stopPen()
             layOut()
             // Raw drawing keeps the old place on screen until it is opened again;
             // the resize does that too, this is for when the window moves late.
-            ink.postDelayed({ if (isInputViewShown) ink.startPen(force = true) }, 300)
+            if (!slim) ink.postDelayed({ if (isInputViewShown && !slim) ink.startPen(force = true) }, 300)
         }
     }
 
-    /** Full screen's page: see-through over the app, or a white dot grid. Remembered. */
+    /** The full screen and tall page: see-through over the app, or a white dot grid. Remembered. */
     private fun toggleDotted() {
         val dotted = !Shortcuts.dottedPage(this)
         Shortcuts.setDottedPage(this, dotted)
-        if (fullScreen) layOut()
+        if (fullScreen || tall) layOut()
         if (!commandMode) showMessage(if (dotted) "Full screen: dotted page" else "Full screen: see-through")
     }
 
-    /** Slim: only the keys, the box and its pen off. Waiting ink is typed first. */
-    private fun setSlim(on: Boolean) {
-        if (!hasView || !isInputViewShown || on == slim) return
-        flushThen {
-            slim = on
-            if (on) {
-                fullScreen = false
-                ink.stopPen()
-            }
-            layOut()
-            if (!on) ink.postDelayed({ if (isInputViewShown && !slim) ink.startPen(force = true) }, 300)
-        }
-    }
-
     /**
-     * The bar was pulled. Up: slim → box → full screen. Down: full screen → box →
-     * slim → closed. Opening it again is a summon (page button, shortcut) or a field tap.
+     * The bar was pulled one step up or down: slim ↔ box ↔ tall ↔ full screen, and
+     * down from slim closes. Opening it again is a summon (page button, shortcut) or a field tap.
      */
     private fun pull(up: Boolean) {
-        PenButtonProbe.record(this, "Keyboard: pulled " + (if (up) "up" else "down") +
-            " from " + if (fullScreen) "full screen" else if (slim) "slim" else "box")
-        when {
-            up && slim -> setSlim(false)
-            up -> setFullScreen(true)
-            fullScreen -> setFullScreen(false)
-            !slim -> setSlim(true)
-            else -> requestHideSelf(0)
-        }
+        val from = size
+        PenButtonProbe.record(this, "Keyboard: pulled " + (if (up) "up" else "down") + " from " + from.name.lowercase())
+        if (!up && from == Size.SLIM) { flushThen { requestHideSelf(0) }; return }
+        val sizes = Size.values()
+        setSize(sizes[(from.ordinal + if (up) 1 else -1).coerceIn(0, sizes.size - 1)])
     }
 
     /**
@@ -431,7 +436,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         ink.clear()
         if (!restorePending) wasFullScreen = fullScreen
         // Next time, in whatever app, the keyboard opens as the box again.
-        if (fullScreen || slim) { fullScreen = false; slim = false; layOut() }
+        if (size != Size.BOX) { fullScreen = false; slim = false; tall = false; layOut() }
         super.onFinishInputView(finishingInput)
     }
 

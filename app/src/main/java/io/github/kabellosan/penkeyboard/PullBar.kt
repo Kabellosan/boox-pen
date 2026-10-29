@@ -20,27 +20,45 @@ class PullBar(
     private val ignoreFingers: () -> Boolean,
 ) : LinearLayout(context) {
 
-    private val reach = 28 * resources.displayMetrics.density
+    // Small: from the slim bar, an upward pull leaves the keyboard's window at once.
+    private val reach = 20 * resources.displayMetrics.density
     private var downX = 0f
     private var downY = 0f
     private var dropping = false
+    private var pulledOnce = false
 
     override fun dispatchTouchEvent(e: MotionEvent): Boolean {
         if (e.actionMasked == MotionEvent.ACTION_DOWN) {
             downX = e.x
             downY = e.y
             dropping = e.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER && ignoreFingers()
+            pulledOnce = false
         }
         if (dropping) return true
         return super.dispatchTouchEvent(e)
     }
 
     override fun onInterceptTouchEvent(e: MotionEvent): Boolean =
-        e.actionMasked == MotionEvent.ACTION_MOVE && pulled(e)
+        e.actionMasked == MotionEvent.ACTION_MOVE && pull(e)
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (e.actionMasked == MotionEvent.ACTION_UP && pulled(e)) onPull(e.y < downY)
+        if (e.actionMasked != MotionEvent.ACTION_DOWN) pull(e)
+        return true
+    }
+
+    /**
+     * Pulls one step as soon as the drag is far enough, not on lifting: a drag
+     * out of the keyboard's window may never send its lift here. One step per drag.
+     */
+    private fun pull(e: MotionEvent): Boolean {
+        if (!pulled(e)) return false
+        if (!pulledOnce) {
+            pulledOnce = true
+            // After this touch is done with the keys the bar is laid out anew.
+            val up = e.y < downY
+            post { onPull(up) }
+        }
         return true
     }
 
