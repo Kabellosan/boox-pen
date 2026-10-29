@@ -85,7 +85,9 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         isAntiAlias = true
     }
     private val dots = Paint().apply {
+        // Partly see-through, so the dots stay quieter than the ink.
         color = Color.DKGRAY
+        alpha = 0x99
         strokeWidth = 2.5f * resources.displayMetrics.density
         strokeCap = Paint.Cap.ROUND
         isAntiAlias = true
