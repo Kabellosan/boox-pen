@@ -33,7 +33,7 @@ import android.widget.TextView
  * and English. The best guess in the active language is committed with a space.
  * Tapping another candidate replaces the word just committed.
  *
- * Full screen turns the whole screen above the keys into a see-through writing
+ * Full screen turns the whole screen under the keys into a see-through writing
  * area over the app, like the Boox keyboard's, with the keys, delete, the cursor
  * slide and the button shortcuts all still working. Fingers and a resting palm
  * are ignored there; Box or a pull down goes back.
@@ -54,7 +54,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     private lateinit var langKey: TextView
     private lateinit var enterKey: TextView
     private lateinit var fullKey: TextView
-    /** The keys and guesses: on top of the box, or along the bottom in full screen. */
+    /** The keys and guesses, on top of the writing area in every size. */
     private lateinit var bar: PullBar
     /** Keys and guesses: stacked in portrait, side by side in one row in landscape. */
     private lateinit var keyRows: LinearLayout
@@ -341,13 +341,11 @@ class PenIME : InputMethodService(), InkView.Listener {
         ink.visibility = if (slim) View.GONE else View.VISIBLE
         ink.transparent = fullScreen
         ink.dotted = (fullScreen || tall) && Shortcuts.dottedPage(this)
-        ink.layoutParams = if (fullScreen) {
-            FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { bottomMargin = barHeight }
-        } else {
-            FrameLayout.LayoutParams(MATCH_PARENT, boxHeight).apply { topMargin = barHeight }
-        }
-        bar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT,
-            if (fullScreen) Gravity.BOTTOM else Gravity.TOP)
+        // The keys and guesses stay on top in every size; full screen's page runs
+        // from under them to the bottom of the screen.
+        ink.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, if (fullScreen) MATCH_PARENT else boxHeight)
+            .apply { topMargin = barHeight }
+        bar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP)
         fullKey.text = if (fullScreen) "Box" else "Full"
         ink.invalidate()
     }
@@ -404,14 +402,16 @@ class PenIME : InputMethodService(), InkView.Listener {
 
     /**
      * In full screen the window covers the app. Tell Android the app only has to
-     * make room for the bar, and that every touch on the window is ours.
+     * make room for a bar's height at the bottom (as it did when the bar sat
+     * there), and that every touch on the window is ours.
      */
     override fun onComputeInsets(outInsets: InputMethodService.Insets) {
         super.onComputeInsets(outInsets)
         if (!fullScreen || !hasView || !isInputViewShown) return
-        val loc = IntArray(2).also { bar.getLocationInWindow(it) }
-        outInsets.contentTopInsets = loc[1]
-        outInsets.visibleTopInsets = loc[1]
+        val root = bar.parent as View
+        val top = root.height - bar.height
+        outInsets.contentTopInsets = top
+        outInsets.visibleTopInsets = top
         outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_FRAME
     }
 
