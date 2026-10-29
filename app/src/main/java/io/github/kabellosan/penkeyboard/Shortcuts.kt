@@ -306,6 +306,7 @@ class Shortcuts(context: Context) {
         private const val GESTURES = "gestures"
         private const val LANG = "lang"
         private const val TURN_WAIT = "turn_wait_ms"
+        private const val DOTTED = "dotted_page"
 
         /** Waits to choose from for a second press, when a single press turns the page. */
         val TURN_WAITS = listOf(200L, 300L, 400L, 500L)
@@ -315,6 +316,13 @@ class Shortcuts(context: Context) {
 
         fun setTurnWaitMs(context: Context, ms: Long) =
             context.getSharedPreferences("shortcuts", Context.MODE_PRIVATE).edit().putLong(TURN_WAIT, ms).apply()
+
+        /** Full screen shows a white dot grid instead of the app (long-press Full to switch). */
+        fun dottedPage(context: Context): Boolean =
+            context.getSharedPreferences("shortcuts", Context.MODE_PRIVATE).getBoolean(DOTTED, true)
+
+        fun setDottedPage(context: Context, on: Boolean) =
+            context.getSharedPreferences("shortcuts", Context.MODE_PRIVATE).edit().putBoolean(DOTTED, on).apply()
 
         /** The language whose best guess is typed, shared by the keyboard and Pen Pad. */
         fun language(context: Context): String =
