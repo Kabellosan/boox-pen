@@ -33,9 +33,14 @@ import android.widget.TextView
  * and English. The best guess in the active language is committed with a space.
  * Tapping another candidate replaces the word just committed.
  *
- * Full screen turns the whole screen above the keys into a see-through writing
+ * Full screen turns the whole screen under the keys into a see-through writing
  * area over the app, like the Boox keyboard's, with the keys, delete, the cursor
- * slide and the button shortcuts all still working. A finger tap goes back.
+ * slide and the button shortcuts all still working. Fingers and a resting palm
+ * are ignored there; Box or a pull down goes back.
+ * Long-press Full to switch its page between see-through and a white dot grid.
+ *
+ * Pull the bar of keys up or down: slim (keys only) ↔ box ↔ tall (two thirds of
+ * the screen) ↔ full screen, and down from slim closes the keyboard.
  *
  * Summoned where there is no text field, it opens in command mode: write an app
  * name or an action ("back", "home"…) and it runs.
@@ -49,8 +54,8 @@ class PenIME : InputMethodService(), InkView.Listener {
     private lateinit var langKey: TextView
     private lateinit var enterKey: TextView
     private lateinit var fullKey: TextView
-    /** The keys and guesses: on top of the box, or along the bottom in full screen. */
-    private lateinit var bar: LinearLayout
+    /** The keys and guesses, on top of the writing area in every size. */
+    private lateinit var bar: PullBar
     /** Keys and guesses: stacked in portrait, side by side in one row in landscape. */
     private lateinit var keyRows: LinearLayout
     private lateinit var keys: LinearLayout
@@ -77,6 +82,12 @@ class PenIME : InputMethodService(), InkView.Listener {
     /** The whole screen is the writing area, the app showing through it. */
     private var fullScreen = false
 
+    /** Pulled down: only the keys, no writing box, so the app gets the screen. */
+    private var slim = false
+
+    /** Pulled up: the keys over a page two thirds of the screen high. */
+    private var tall = false
+
     /**
      * Command mode: summoned with no text field (or asked for), so a written word
      * opens an app or runs an action instead of being typed. See [Commands].
@@ -96,6 +107,14 @@ class PenIME : InputMethodService(), InkView.Listener {
     private var lastCommitted: String? = null
 
     private val commitRunnable = Runnable { recognizeAndCommit() }
+
+    /** Guesses for words already in the field: their own handwriting guesses, and spellings. */
+    private lateinit var words: WordMemory
+    private lateinit var spell: SpellCheck
+    /** The word or selection the guesses are about now; null while they are for fresh ink. */
+    private var target: FieldText? = null
+    private var targetAsk = 0
+    private val lookAtCursor = Runnable { suggestForCursor() }
 
     /** Side button held + taps, a press, or a drawn shape: actions set in Pen shortcuts. */
     private lateinit var buttonGestures: ButtonGestures
@@ -144,6 +163,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         instance = this
         recognizer = Recognizer()
         recognizer.downloadAll()
+        words = WordMemory(this)
+        spell = SpellCheck(this, recognizer.languages)
         shortcuts = Shortcuts(this)
         orientation = resources.configuration.orientation
         activeLang = Shortcuts.language(this)
@@ -157,6 +178,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         shown = false
         instance = null
         recognizer.close()
+        spell.close()
         super.onDestroy()
     }
 
@@ -167,21 +189,28 @@ class PenIME : InputMethodService(), InkView.Listener {
         val dp = resources.displayMetrics.density
         // See-through, so the app shows wherever the bar and the box aren't.
         val root = FrameLayout(this)
-        bar = LinearLayout(this).apply {
+        bar = PullBar(this, ::pull, ::palmGuard).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.WHITE)
         }
 
         // Keys on top, under a black rule: a hard edge between the app and the
-        // keyboard. Then the guesses, right above the boxed writing area.
+        // keyboard, and a grip to pull. Then the guesses, right above the box.
         bar.addView(View(this).apply { setBackgroundColor(Color.BLACK) },
             LinearLayout.LayoutParams(MATCH_PARENT, (2 * dp).toInt()))
+        bar.addView(FrameLayout(this).apply {
+            addView(View(context).apply { setBackgroundColor(Color.DKGRAY) },
+                FrameLayout.LayoutParams((48 * dp).toInt(), (4 * dp).toInt(), Gravity.CENTER))
+            // A tap on the grip of the slim bar brings the box back.
+            setOnClickListener { if (slim) setSize(Size.BOX) }
+        }, LinearLayout.LayoutParams(MATCH_PARENT, (gripDp * dp).toInt()))
 
         keys = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         langKey = key(activeLang.uppercase()) { toggleLanguage() }
         keys.addView(langKey, weight(1f))
         keys.addView(key("⌨") { switchKeyboard() }, weight(1f))
         fullKey = key("Full") { setFullScreen(!fullScreen) }
+        fullKey.setOnLongClickListener { toggleDotted(); true }
         keys.addView(fullKey, weight(1.2f))
         // Comma on a tap, period on a long press: no need to write the tiny marks.
         val commaKey = key(",") { commitMark(",") }
@@ -206,6 +235,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         root.addView(ink)
         root.addView(bar)
         fullScreen = false
+        slim = false
+        tall = false
         layOut()
         root.post { restoreAfterTurn() }
         return root
@@ -298,57 +329,100 @@ class PenIME : InputMethodService(), InkView.Listener {
         val rowHeight = (52 * dp).toInt()
         val guessHeight = (44 * dp).toInt()
         keyRows.removeAllViews()
+        val ruleHeight = ((2 + gripDp) * dp).toInt()
         val barHeight = if (landscape) {
             keyRows.orientation = LinearLayout.HORIZONTAL
             keyRows.addView(guesses, LinearLayout.LayoutParams(0, rowHeight, 4f))
             keyRows.addView(keys, LinearLayout.LayoutParams(0, rowHeight, 6f))
-            (2 * dp).toInt() + rowHeight
+            ruleHeight + rowHeight
         } else {
             keyRows.orientation = LinearLayout.VERTICAL
             keyRows.addView(keys, LinearLayout.LayoutParams(MATCH_PARENT, rowHeight))
-            keyRows.addView(guesses, LinearLayout.LayoutParams(MATCH_PARENT, guessHeight))
-            (2 * dp).toInt() + rowHeight + guessHeight
+            // Slim keeps just the keys: the guesses go with the box.
+            if (!slim) keyRows.addView(guesses, LinearLayout.LayoutParams(MATCH_PARENT, guessHeight))
+            ruleHeight + rowHeight + if (slim) 0 else guessHeight
         }
-        val boxHeight = if (landscape) {
+        val boxHeight = if (tall) {
+            resources.displayMetrics.heightPixels * 2 / 3 - barHeight
+        } else if (landscape) {
             (resources.displayMetrics.heightPixels * 0.4f).toInt().coerceIn((150 * dp).toInt(), (280 * dp).toInt())
         } else {
             (280 * dp).toInt()
         }
+        ink.visibility = if (slim) View.GONE else View.VISIBLE
         ink.transparent = fullScreen
-        ink.onFingerTap = if (fullScreen) ({ setFullScreen(false) }) else null
-        ink.layoutParams = if (fullScreen) {
-            FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT).apply { bottomMargin = barHeight }
-        } else {
-            FrameLayout.LayoutParams(MATCH_PARENT, boxHeight).apply { topMargin = barHeight }
-        }
-        bar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT,
-            if (fullScreen) Gravity.BOTTOM else Gravity.TOP)
+        ink.dotted = (fullScreen || tall) && Shortcuts.dottedPage(this)
+        // The keys and guesses stay on top in every size; full screen's page runs
+        // from under them to the bottom of the screen.
+        ink.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, if (fullScreen) MATCH_PARENT else boxHeight)
+            .apply { topMargin = barHeight }
+        bar.layoutParams = FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.TOP)
         fullKey.text = if (fullScreen) "Box" else "Full"
         ink.invalidate()
     }
 
+    private enum class Size { SLIM, BOX, TALL, FULL }
+
+    private val size get() = when {
+        slim -> Size.SLIM
+        tall -> Size.TALL
+        fullScreen -> Size.FULL
+        else -> Size.BOX
+    }
+
     /** Switches full-screen writing on or off, typing any waiting ink first. */
-    private fun setFullScreen(on: Boolean) {
-        if (!hasView || !isInputViewShown || on == fullScreen) return
+    private fun setFullScreen(on: Boolean) = setSize(if (on) Size.FULL else Size.BOX)
+
+    /**
+     * Slim (only the keys, the box and its pen off), box, tall or full screen.
+     * Waiting ink is typed first.
+     */
+    private fun setSize(to: Size) {
+        if (!hasView || !isInputViewShown || to == size) return
         flushThen {
-            fullScreen = on
+            slim = to == Size.SLIM
+            tall = to == Size.TALL
+            fullScreen = to == Size.FULL
+            if (slim) ink.stopPen()
             layOut()
             // Raw drawing keeps the old place on screen until it is opened again;
             // the resize does that too, this is for when the window moves late.
-            ink.postDelayed({ if (isInputViewShown) ink.startPen(force = true) }, 300)
+            if (!slim) ink.postDelayed({ if (isInputViewShown && !slim) ink.startPen(force = true) }, 300)
         }
+    }
+
+    /** The full screen and tall page: see-through over the app, or a white dot grid. Remembered. */
+    private fun toggleDotted() {
+        val dotted = !Shortcuts.dottedPage(this)
+        Shortcuts.setDottedPage(this, dotted)
+        if (fullScreen || tall) layOut()
+        if (!commandMode) showMessage(if (dotted) "Full screen: dotted page" else "Full screen: see-through")
+    }
+
+    /**
+     * The bar was pulled one step up or down: slim ↔ box ↔ tall ↔ full screen, and
+     * down from slim closes. Opening it again is a summon (page button, shortcut) or a field tap.
+     */
+    private fun pull(up: Boolean) {
+        val from = size
+        PenButtonProbe.record(this, "Keyboard: pulled " + (if (up) "up" else "down") + " from " + from.name.lowercase())
+        if (!up && from == Size.SLIM) { flushThen { requestHideSelf(0) }; return }
+        val sizes = Size.values()
+        setSize(sizes[(from.ordinal + if (up) 1 else -1).coerceIn(0, sizes.size - 1)])
     }
 
     /**
      * In full screen the window covers the app. Tell Android the app only has to
-     * make room for the bar, and that every touch on the window is ours.
+     * make room for a bar's height at the bottom (as it did when the bar sat
+     * there), and that every touch on the window is ours.
      */
     override fun onComputeInsets(outInsets: InputMethodService.Insets) {
         super.onComputeInsets(outInsets)
         if (!fullScreen || !hasView || !isInputViewShown) return
-        val loc = IntArray(2).also { bar.getLocationInWindow(it) }
-        outInsets.contentTopInsets = loc[1]
-        outInsets.visibleTopInsets = loc[1]
+        val root = bar.parent as View
+        val top = root.height - bar.height
+        outInsets.contentTopInsets = top
+        outInsets.visibleTopInsets = top
         outInsets.touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_FRAME
     }
 
@@ -373,7 +447,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         ink.clear()
         if (!restorePending) wasFullScreen = fullScreen
         // Next time, in whatever app, the keyboard opens as the box again.
-        if (fullScreen) { fullScreen = false; layOut() }
+        if (size != Size.BOX) { fullScreen = false; slim = false; tall = false; layOut() }
         super.onFinishInputView(finishingInput)
     }
 
@@ -424,6 +498,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         commandMode = on
         if (!hasView) return
         if (on) {
+            // Command mode is written: it needs the box.
+            if (slim) { slim = false; layOut(); ink.postDelayed({ if (isInputViewShown) ink.startPen(force = true) }, 300) }
             main.removeCallbacks(commitRunnable)
             ink.clear()
             // The app list takes a moment: after the keyboard is on screen.
@@ -440,14 +516,28 @@ class PenIME : InputMethodService(), InkView.Listener {
     // ── Pen events ──────────────────────────────────────────────────
 
     override fun onStrokeStart() {
+        penAt = SystemClock.uptimeMillis()
         buttonGestures.flush()
         main.removeCallbacks(commitRunnable)
     }
 
     override fun onStrokeEnd() {
+        penAt = SystemClock.uptimeMillis()
         main.removeCallbacks(commitRunnable)
         main.postDelayed(commitRunnable, commitDelayMs)
     }
+
+    /** When the pen last touched down or lifted in the writing area. */
+    private var penAt = 0L
+
+    /**
+     * While writing, a hand resting on the keys must not press them: finger
+     * touches on the bar are ignored during a stroke and for a moment after.
+     */
+    private fun palmGuard(): Boolean =
+        hasView && (ink.drawing || SystemClock.uptimeMillis() - penAt < palmGuardMs)
+
+    private val palmGuardMs = 1500L
 
     /** A line break, without the space we put after the last word. */
     private fun newLine() {
@@ -557,6 +647,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     private val slideStepPx get() = 12 * resources.displayMetrics.density
 
     override fun onEraseStart() {
+        penAt = SystemClock.uptimeMillis()
         if (!buttonGestures.takeTap()) return
         sliding = true
         slideX = Float.NaN
@@ -576,6 +667,7 @@ class PenIME : InputMethodService(), InkView.Listener {
     }
 
     override fun onErase(path: Stroke, durationMs: Long) {
+        penAt = SystemClock.uptimeMillis()
         if (sliding) {
             // Firmware that sends no live moves gets the whole slide at the end.
             onEraseMove(path)
@@ -827,6 +919,7 @@ class PenIME : InputMethodService(), InkView.Listener {
                         PenButtonProbe.record(this, "Ink: ${strokes.size} stroke(s), read \"$read\" ($codes), typed \"$best\"")
                     }
                     if (best != null) commitWord(best, pre)
+                    if (best != null && best == read && best.any { it.isLetter() }) words.remember(results)
                     if (best == read && read != null && read.count { it.isLetter() } >= 2) learnWordHeight(strokes)
                     showCandidates(results, Punctuation.markChoices(best), best)
                     then?.invoke()
@@ -887,6 +980,85 @@ class PenIME : InputMethodService(), InkView.Listener {
         } else {
             commit("$word ", remember = true)
         }
+    }
+
+    // ── Guesses for text already in the field ───────────────────────
+
+    /** The cursor moved or text was selected: once it settles, offer guesses for what it touches. */
+    override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int,
+                                   candidatesStart: Int, candidatesEnd: Int) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        if (!hasView || !shown || commandMode) return
+        main.removeCallbacks(lookAtCursor)
+        main.postDelayed(lookAtCursor, 300)
+    }
+
+    /** What the cursor touches or what is selected, if anything. */
+    private fun findTarget(): FieldText? {
+        val ic = currentInputConnection ?: return null
+        val selected = ic.getSelectedText(0)?.toString()
+        if (!selected.isNullOrEmpty()) return if (selected.length <= 300) FieldText.ofSelection(selected) else null
+        val before = ic.getTextBeforeCursor(48, 0)?.toString() ?: return null
+        val after = ic.getTextAfterCursor(48, 0)?.toString() ?: ""
+        return FieldText.atCursor(before, after)
+    }
+
+    private fun suggestForCursor() {
+        if (!hasView || !shown || commandMode || ink.strokes.isNotEmpty()) return
+        val ic = currentInputConnection ?: return
+        // Still right after the word just written: its own guesses stay.
+        val last = lastCommitted
+        if (target == null && last != null && ic.getSelectedText(0).isNullOrEmpty() &&
+            ic.getTextBeforeCursor(last.length, 0)?.toString() == last) return
+        val t = findTarget()
+        if (t == target) return
+        target = t
+        val ask = ++targetAsk
+        if (t == null) { showCandidates(emptyMap()); return }
+        // Handwriting guesses kept from when it was written come first, then spellings.
+        val remembered = words.lookup(t.core)
+        val spelled = HashMap<String, List<String>>()
+        for (lang in recognizer.languages) {
+            spell.ask(lang, t.core) { found ->
+                if (ask != targetAsk || commandMode || ink.strokes.isNotEmpty()) return@ask
+                spelled[lang] = found
+                if (spelled.size == recognizer.languages.size) showTargetGuesses(t, remembered, spelled)
+            }
+        }
+    }
+
+    /** The target in grey, then its guesses: remembered, spelled, other capitals. */
+    private fun showTargetGuesses(t: FieldText, remembered: Map<String, List<String>>, spelled: Map<String, List<String>>) {
+        candidateRow.removeAllViews()
+        val label = if (t.core.length > 18) t.core.take(16) + "…" else t.core
+        candidateRow.addView(key("$label ›") {}.apply { setTextColor(Color.GRAY); isClickable = false },
+            LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        val ordered = listOf(activeLang) + recognizer.languages.filter { it != activeLang }
+        val seen = hashSetOf(t.core)
+        fun add(c: String, lang: String?) {
+            if (!seen.add(c)) return
+            val text = if (lang == null || lang == activeLang) c else "$c·$lang"
+            candidateRow.addView(key(text) { replaceTarget(t, c) }, LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        }
+        for (lang in ordered) remembered[lang].orEmpty().take(4).forEach { add(it, lang) }
+        for (lang in ordered) spelled[lang].orEmpty().take(4).forEach { add(it, lang) }
+        FieldText.caseVariants(t.core).forEach { add(it, null) }
+        if (candidateRow.childCount == 1) {
+            candidateRow.addView(key("no guesses") {}.apply { setTextColor(Color.GRAY); isClickable = false },
+                LinearLayout.LayoutParams(WRAP_CONTENT, MATCH_PARENT))
+        }
+    }
+
+    /** Puts [word] in place of the target, keeping the marks around it. */
+    private fun replaceTarget(t: FieldText, word: String) {
+        val ic = currentInputConnection ?: return
+        // The text moved on since the guesses were shown: show guesses for what is there now.
+        if (findTarget() != t) { target = null; suggestForCursor(); return }
+        lastCommitted = null
+        ic.beginBatchEdit()
+        if (!t.selection) ic.deleteSurroundingText(t.before, t.after)
+        ic.commitText(t.prefix + word + t.suffix, 1)
+        ic.endBatchEdit()
     }
 
     /** Takes out the space between the word just written and the word before it. */
@@ -1012,6 +1184,8 @@ class PenIME : InputMethodService(), InkView.Listener {
     /** Shows a short note in the candidate row. */
     private fun showMessage(text: String) {
         if (!hasView) return
+        target = null
+        targetAsk++
         candidateRow.removeAllViews()
         candidateRow.addView(TextView(this).apply {
             this.text = text
@@ -1028,6 +1202,8 @@ class PenIME : InputMethodService(), InkView.Listener {
      * guesses, then the other language's. The one typed, [best], is bold.
      */
     private fun showCandidates(results: Map<String, List<String>>, marks: List<String> = emptyList(), best: String? = null) {
+        target = null
+        targetAsk++
         candidateRow.removeAllViews()
         val ordered = listOf(activeLang) + recognizer.languages.filter { it != activeLang }
         val seen = HashSet<String>()
@@ -1061,6 +1237,9 @@ class PenIME : InputMethodService(), InkView.Listener {
         setBackgroundResource(android.R.drawable.list_selector_background)
         setOnClickListener { onClick() }
     }
+
+    /** Height of the grip strip under the black rule. */
+    private val gripDp = 12
 
     private fun weight(w: Float) = LinearLayout.LayoutParams(0, MATCH_PARENT, w)
 
