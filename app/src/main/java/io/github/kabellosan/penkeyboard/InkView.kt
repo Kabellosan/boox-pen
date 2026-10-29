@@ -103,6 +103,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         // Some firmware reports the eraser as a drawing stroke with eraser = true
         // instead of using the erasing callbacks, so both routes lead to erasing.
         override fun onBeginRawDrawing(eraser: Boolean, p: TouchPoint) {
+            rawBeganAt = SystemClock.uptimeMillis()
             main.post { if (eraser) beginErase(p) else beginStroke(p.x, p.y, p.timestamp) }
         }
 
@@ -128,6 +129,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         }
 
         override fun onBeginRawErasing(eraser: Boolean, p: TouchPoint) {
+            rawBeganAt = SystemClock.uptimeMillis()
             main.post { beginErase(p) }
         }
 
@@ -163,6 +165,7 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
             th.openRawDrawing()
             val limit = writingRect()
             th.setLimitRect(limit, emptyList())
+            notePlace(limit)
             th.setStrokeStyle(TouchHelper.STROKE_STYLE_FOUNTAIN)
             th.setStrokeWidth(paint.strokeWidth)
             th.setStrokeColor(Color.BLACK)
@@ -190,6 +193,86 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     }
 
     private var penOn = false
+
+    /** When the SDK last reported a stroke or eraser starting (uptime ms). */
+    @Volatile private var rawBeganAt = 0L
+
+    /** Where this view sat on screen when raw drawing last got its limit rect. */
+    private val penPlace = IntArray(2)
+    private val placeNow = IntArray(2)
+    private var loggedPlace = ""
+
+    /**
+     * The SDK keeps the screen position the limit rect had when it was set. If the
+     * keyboard window then moves without this view changing size (the navigation
+     * bar coming back, the window settling late), the ink area stays where it was
+     * and a band of the box takes no ink. Logged so the key log shows where it was.
+     */
+    private fun notePlace(limit: Rect) {
+        getLocationOnScreen(penPlace)
+        val place = "Ink area: box at ${penPlace[0]},${penPlace[1]} ${width}x$height, " +
+            "limit ${limit.left},${limit.top}-${limit.right},${limit.bottom}"
+        if (place != loggedPlace) {
+            loggedPlace = place
+            PenButtonProbe.record(context, place)
+        }
+    }
+
+    /** Opens raw drawing again if this view moved on screen since it was set up. */
+    private val placeWatcher = android.view.ViewTreeObserver.OnPreDrawListener {
+        if (owner === this && penOn && touchHelper != null && width > 0) {
+            getLocationOnScreen(placeNow)
+            if (placeNow[1] != penPlace[1] || placeNow[0] != penPlace[0]) {
+                val why = "Ink area: box moved from ${penPlace[0]},${penPlace[1]} to ${placeNow[0]},${placeNow[1]}"
+                penPlace[0] = placeNow[0]; penPlace[1] = placeNow[1]
+                main.post { restartAfterMove(why) }
+            }
+        }
+        true
+    }
+
+    /** Restarts the pen once the current stroke is done (a restart mid-stroke breaks it). */
+    private fun restartAfterMove(why: String) {
+        if (owner !== this || !penOn) return
+        if (drawing || eraserPath != null) {
+            main.postDelayed({ restartAfterMove(why) }, 300)
+            return
+        }
+        PenButtonProbe.record(context, "$why, pen restarted")
+        startPen(force = true)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        viewTreeObserver.addOnPreDrawListener(placeWatcher)
+    }
+
+    override fun onDetachedFromWindow() {
+        viewTreeObserver.removeOnPreDrawListener(placeWatcher)
+        super.onDetachedFromWindow()
+    }
+
+    /**
+     * Inside the limit rect the SDK takes the pen; a pen touch there that reaches
+     * this view with no raw stroke starting means the ink area is not where the box
+     * is. Log it with both places and start the pen again.
+     */
+    private fun checkMissedPen(e: MotionEvent) {
+        val tool = e.getToolType(0)
+        if (tool != MotionEvent.TOOL_TYPE_STYLUS && tool != MotionEvent.TOOL_TYPE_ERASER) return
+        if (!penOn || owner !== this) return
+        val box = writingRect()
+        if (!box.contains(e.x.toInt(), e.y.toInt())) return
+        val downAt = SystemClock.uptimeMillis()
+        val x = e.x.toInt()
+        val y = e.y.toInt()
+        main.postDelayed({
+            if (rawBeganAt >= downAt - 300) return@postDelayed
+            getLocationOnScreen(placeNow)
+            restartAfterMove("Ink area: pen at $x,$y in the box drew nothing (box now at " +
+                "${placeNow[0]},${placeNow[1]}, ink area set at ${penPlace[0]},${penPlace[1]})")
+        }, 300)
+    }
 
     /**
      * Where the pen may ink: the visible view, or inside the box when there is one,
@@ -317,7 +400,10 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         // A palm resting on the page does nothing; only the pen writes.
         if (e.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER && isBoox) return true
-        if (usingOnyx) return false
+        if (usingOnyx) {
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) checkMissedPen(e)
+            return false
+        }
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN ->
                 if (isEraser(e)) beginErase(e.x, e.y, e.eventTime) else beginStroke(e.x, e.y, e.eventTime)
