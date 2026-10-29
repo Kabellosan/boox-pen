@@ -90,8 +90,8 @@ class InkView(context: Context, private val listener: Listener) : View(context) 
         strokeCap = Paint.Cap.ROUND
         isAntiAlias = true
     }
-    /** About 5 mm on the Go 7, like a dotted notebook. */
-    private val dotGap = 32f * resources.displayMetrics.density
+    /** About 4 mm on the Go 7 (5 mm looked too sparse). */
+    private val dotGap = 24f * resources.displayMetrics.density
     private val frameInset = 6f * resources.displayMetrics.density
     private val frameRadius = 8f * resources.displayMetrics.density
 
