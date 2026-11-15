@@ -18,6 +18,22 @@ import android.widget.TextView
 /** Launcher screen: turn the keyboard on, pick it, fetch the models, try it out. */
 class SetupActivity : Activity() {
 
+    /**
+     * True if something other than the home screen opened us fresh: Boox's button
+     * settings launch apps from their own package. Logs who it was, so the key log
+     * shows what a Boox button looks like.
+     */
+    private fun openedByButton(): Boolean {
+        if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return false
+        val by = referrer?.host
+        val home = packageManager.resolveActivity(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)?.activityInfo?.packageName
+        val button = by != null && by != home && by != packageName && by != "com.android.systemui" &&
+            !by.contains("packageinstaller")
+        PenButtonProbe.record(this, "Opened by ${by ?: "unknown"} (home: $home)" + if (button) " → Commands" else "")
+        return button
+    }
+
     private lateinit var status: TextView
     private lateinit var updateStatus: TextView
     private lateinit var updateButton: Button
@@ -29,6 +45,19 @@ class SetupActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null && openedByButton()) {
+            // Opened by a Boox button (e.g. its long press set to Pen Keyboard): show
+            // Commands over the app underneath instead of this screen.
+            finish()
+            overridePendingTransition(0, 0)
+            val app = applicationContext
+            android.os.Handler(mainLooper).postDelayed({
+                if (!PenIME.showSelf(app, commands = true)) {
+                    startActivity(Intent(app, LauncherActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }, 300)
+            return
+        }
         val pad = (24 * resources.displayMetrics.density).toInt()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

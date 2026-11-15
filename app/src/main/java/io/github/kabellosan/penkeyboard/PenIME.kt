@@ -137,18 +137,6 @@ class PenIME : InputMethodService(), InkView.Listener {
     // in Pen shortcuts.
     /** How far back from a page button's release tip taps count as done while holding it. */
     private val pageTapWindowMs = 1500L
-    /** Held this long, a page button is a long press; it runs while still held. */
-    private val holdMs = 600L
-    /** The long press already ran for the button still down; its release does nothing. */
-    private var holdRan = false
-    private val holdPress = Runnable {
-        val button = pageButton(takenKey) ?: return@Runnable
-        holdRan = true
-        // A press of this button just before is its own single press, not part of this one.
-        if (pressButton != null) finishPress.run()
-        PenButtonProbe.record(this, "  held ${holdMs} ms")
-        runPress(hold(button))
-    }
     private val finishPress = Runnable {
         val button = pressButton ?: return@Runnable
         val double = pressCount >= 2
@@ -578,10 +566,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         main.removeCallbacks(finishPress)
         if (pressButton != null && pressButton != button) finishPress.run()
         takenKey = keyCode
-        holdRan = false
         countOnUp = !pageTaps(button)
-        main.removeCallbacks(holdPress)
-        if (countOnUp && shortcuts.action(hold(button)) != Action.NONE) main.postDelayed(holdPress, holdMs)
         if (isInputViewShown) flushThen {}
         return true
     }
@@ -590,16 +575,11 @@ class PenIME : InputMethodService(), InkView.Listener {
         val button = pageButton(keyCode)
         if (button == null || keyCode != takenKey) return super.onKeyUp(keyCode, event)
         takenKey = 0
-        main.removeCallbacks(holdPress)
-        // How long it was held, as Android saw it (Boox has sent some presses only on release).
+        // How long it was held, as Android saw it: 0 ms on the Go 7, since Boox sends
+        // the press only on release, so the keyboard can't tell a long press. Boox's
+        // own long press can open Pen Keyboard instead (SetupActivity → commands).
         val heldMs = event.eventTime - event.downTime
         when {
-            holdRan -> PenButtonProbe.record(this, "  up after $heldMs ms (long press)")
-            countOnUp && heldMs >= holdMs && shortcuts.action(hold(button)) != Action.NONE -> {
-                PenButtonProbe.record(this, "  up after $heldMs ms, long press")
-                if (pressButton != null) finishPress.run()
-                runPress(hold(button))
-            }
             countOnUp && passOn(keyCode, button) ->
                 PenButtonProbe.record(this, "  up after $heldMs ms, passed on")
             countOnUp -> {
@@ -607,15 +587,11 @@ class PenIME : InputMethodService(), InkView.Listener {
                 countPress(button)
             }
         }
-        holdRan = false
         return true
     }
 
-    private fun hold(button: PageButton) =
-        if (button == PageButton.UP) ButtonPress.UP_HOLD else ButtonPress.DOWN_HOLD
-
     /**
-     * A short press of a button with no press or double press set: the app still gets its
+     * A press of a button with no press or double press set (only tip taps): the app still gets its
      * page turn, at once. Page keys only; a volume key passed on would just change
      * the volume.
      */

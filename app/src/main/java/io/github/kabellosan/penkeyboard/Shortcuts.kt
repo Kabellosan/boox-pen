@@ -128,10 +128,8 @@ enum class PageButton { UP, DOWN }
 enum class ButtonPress(val key: String, val label: String, val default: Action) {
     UP_PRESS("up_press", "Page Up press", Action.NONE),
     UP_DOUBLE("up_double", "Page Up double press", Action.NONE),
-    UP_HOLD("up_hold", "Page Up long press", Action.NONE),
     DOWN_PRESS("down_press", "Page Down press", Action.NONE),
     DOWN_DOUBLE("down_double", "Page Down double press", Action.NONE),
-    DOWN_HOLD("down_hold", "Page Down long press", Action.NONE),
 }
 
 /**
