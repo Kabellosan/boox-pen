@@ -218,7 +218,8 @@ class PenIME : InputMethodService(), InkView.Listener {
         commaKey.setOnLongClickListener { commitMark("."); true }
         keys.addView(commaKey, weight(1f))
         keys.addView(key("space") { flushThen { commit(" ", remember = false) } }, weight(1.6f))
-        keys.addView(deleteKey(), weight(2.5f))
+        keys.addView(wordDeleteKey(), weight(1.1f))
+        keys.addView(deleteKey(), weight(1.4f))
         enterKey = key("⏎") { if (commandMode) requestHideSelf(0) else flushThen { enter() } }
         enterKey.setOnLongClickListener { flushThen { commit("\n", remember = false) }; true }
         keys.addView(enterKey, weight(1.5f))
@@ -913,9 +914,11 @@ class PenIME : InputMethodService(), InkView.Listener {
     private fun deleteLastWord() {
         val ic = currentInputConnection ?: return
         lastCommitted = null
+        // A selection goes as a whole, like a plain delete would take it.
+        if (!ic.getSelectedText(0).isNullOrEmpty()) { ic.commitText("", 1); return }
         val before = ic.getTextBeforeCursor(64, 0)?.toString() ?: return
-        val word = Regex("\\S+\\s*$").find(before)?.value ?: before.takeLastWhile { it.isWhitespace() }
-        if (word.isNotEmpty()) ic.deleteSurroundingText(word.length, 0)
+        val drop = Punctuation.lastWordLength(before)
+        if (drop > 0) ic.deleteSurroundingText(drop, 0)
     }
 
     private fun recognizeAndCommit(then: (() -> Unit)? = null) {
@@ -1140,6 +1143,34 @@ class PenIME : InputMethodService(), InkView.Listener {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     v.isPressed = false
                     main.removeCallbacks(repeatDelete)
+                }
+            }
+            true
+        }
+    }
+
+    /**
+     * Word delete: a tap takes the word before the cursor (with the spaces after
+     * it), or the ink if some is still unread. Held, it keeps taking words.
+     */
+    private val repeatWordDelete: Runnable = object : Runnable {
+        override fun run() { deleteLastWord(); main.postDelayed(this, 450) }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun wordDeleteKey() = key("⌫w") {}.apply {
+        setOnClickListener(null)
+        setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.isPressed = true
+                    main.removeCallbacks(commitRunnable)
+                    if (ink.strokes.isNotEmpty()) ink.clear()
+                    else { deleteLastWord(); main.postDelayed(repeatWordDelete, 600) }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    v.isPressed = false
+                    main.removeCallbacks(repeatWordDelete)
                 }
             }
             true
