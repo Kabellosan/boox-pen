@@ -103,6 +103,19 @@ object Punctuation {
     }
 
     /**
+     * How many characters a word delete takes from the end of [before] (the text
+     * before the cursor): the last word with any spaces after it. A line break
+     * goes on its own, so a delete never eats the line above in one step.
+     */
+    fun lastWordLength(before: String): Int {
+        if (before.endsWith("\n")) return 1
+        val spaces = before.length - before.trimEnd(' ', '\t').length
+        val rest = before.dropLast(spaces)
+        if (rest.isEmpty() || rest.endsWith("\n")) return spaces
+        return spaces + (rest.length - rest.trimEnd { !it.isWhitespace() }.length)
+    }
+
+    /**
      * How to put [word] after [pre] (the text before the cursor): how many characters
      * to delete first, and the text to write. Words get a space before them when
      * needed and one after. Punctuation takes the space after the word before it,

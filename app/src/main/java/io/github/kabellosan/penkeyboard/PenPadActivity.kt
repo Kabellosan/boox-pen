@@ -69,6 +69,10 @@ class PenPadActivity : Activity(), InkView.Listener {
         langKey = key(activeLang.uppercase()) { toggleLanguage() }
         keys.addView(langKey, weight(1f))
         keys.addView(key("space") { flushThen { insert(" ") } }, weight(2f))
+        keys.addView(key("⌫w") {
+            main.removeCallbacks(commitRunnable)
+            if (ink.strokes.isNotEmpty()) ink.clear() else deleteLastWord()
+        }, weight(1f))
         keys.addView(key("⌫") { backspace() }, weight(1f))
         keys.addView(key("Send") { flushThen { send() } }, weight(1.5f))
         keys.addView(key("Done") { flushThen { finish() } }, weight(1.5f))
@@ -284,8 +288,8 @@ class PenPadActivity : Activity(), InkView.Listener {
     private fun deleteLastWord() {
         lastInserted = null
         val before = helper?.textBeforeCursor(64) ?: return
-        val word = Regex("\\S+\\s*$").find(before)?.value ?: before.takeLastWhile { it.isWhitespace() }
-        if (word.isNotEmpty()) helper?.edit(word.length, "")
+        val drop = Punctuation.lastWordLength(before)
+        if (drop > 0) helper?.edit(drop, "")
     }
 
     /** Presses the field's Send; if the app doesn't offer one, closes the pad so you can tap it. */
