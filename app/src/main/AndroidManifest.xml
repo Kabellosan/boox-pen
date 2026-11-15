@@ -27,14 +27,24 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         tools:replace="android:label,android:allowBackup">
 
+        <!-- The home icon (and Boox's button list entry "Pen Keyboard"): opens setup from the
+             home screen, Commands when a Boox button opens it over an app. -->
         <activity
-            android:name=".SetupActivity"
-            android:exported="true">
+            android:name=".EntryActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:taskAffinity="io.github.kabellosan.penkeyboard.entry"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".SetupActivity"
+            android:exported="true" />
 
         <activity
             android:name=".ShortcutsActivity"

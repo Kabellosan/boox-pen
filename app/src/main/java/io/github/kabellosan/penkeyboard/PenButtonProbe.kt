@@ -235,6 +235,10 @@ class PenButtonProbe : AccessibilityService() {
         return false
     }
 
+    /** The app whose screen opened last (ours included; not keyboards or Boox's floating button). */
+    var lastApp: String? = null
+        private set
+
     /** The last Boox screen opened, so each one is logged once. */
     private var lastBooxWindow: String? = null
 
@@ -243,6 +247,10 @@ class PenButtonProbe : AccessibilityService() {
             // Which Boox screen opened (e.g. from the smart button), so its tools can be found.
             val pkg = event.packageName?.toString().orEmpty()
             val window = "$pkg/${event.className}"
+            // The app on screen before ours opens: tells a Boox button launch from a home-screen tap.
+            // Keyboards' windows and Boox's floating button don't count as an app on screen.
+            val cls = event.className?.toString().orEmpty()
+            if (pkg.isNotEmpty() && pkg != "com.onyx.floatingbutton" && !cls.contains("SoftInputWindow")) lastApp = pkg
             if ((pkg.startsWith("com.onyx") || pkg == "com.android.systemui") && window != lastBooxWindow) {
                 lastBooxWindow = window
                 record(this, "Window: $window")

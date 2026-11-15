@@ -577,7 +577,7 @@ class PenIME : InputMethodService(), InkView.Listener {
         takenKey = 0
         // How long it was held, as Android saw it: 0 ms on the Go 7, since Boox sends
         // the press only on release, so the keyboard can't tell a long press. Boox's
-        // own long press can open Pen Keyboard instead (SetupActivity → commands).
+        // own long press can open Pen Keyboard instead (EntryActivity → commands).
         val heldMs = event.eventTime - event.downTime
         when {
             countOnUp && passOn(keyCode, button) ->
