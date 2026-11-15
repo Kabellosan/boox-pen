@@ -80,6 +80,9 @@ class ShortcutsActivity : Activity() {
         list.addView(text("With a press set to Next page or Previous page, the page turns after this wait, so a " +
             "double press doesn't turn it too. Shorter feels quicker; too short and a slow double counts as two turns.", 16f))
         list.addView(text("Hold a page button and tap with the tip outside the keyboard; it runs when you let go.", 16f))
+        list.addView(text("A long press is holding a button 0.6 s; it runs while you still hold it. With only a long " +
+            "press set, a short press still turns the page. If Boox has its own long press set for the button, it " +
+            "may take the press first: set it to None.", 16f))
 
         section("Your gestures",
             "Draw one with the pen's button held in the keyboard's empty writing area, or with the tip in command mode.")

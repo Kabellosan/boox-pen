@@ -137,6 +137,18 @@ class PenIME : InputMethodService(), InkView.Listener {
     // in Pen shortcuts.
     /** How far back from a page button's release tip taps count as done while holding it. */
     private val pageTapWindowMs = 1500L
+    /** Held this long, a page button is a long press; it runs while still held. */
+    private val holdMs = 600L
+    /** The long press already ran for the button still down; its release does nothing. */
+    private var holdRan = false
+    private val holdPress = Runnable {
+        val button = pageButton(takenKey) ?: return@Runnable
+        holdRan = true
+        // A press of this button just before is its own single press, not part of this one.
+        if (pressButton != null) finishPress.run()
+        PenButtonProbe.record(this, "  held ${holdMs} ms")
+        runPress(hold(button))
+    }
     private val finishPress = Runnable {
         val button = pressButton ?: return@Runnable
         val double = pressCount >= 2
@@ -566,7 +578,10 @@ class PenIME : InputMethodService(), InkView.Listener {
         main.removeCallbacks(finishPress)
         if (pressButton != null && pressButton != button) finishPress.run()
         takenKey = keyCode
+        holdRan = false
         countOnUp = !pageTaps(button)
+        main.removeCallbacks(holdPress)
+        if (countOnUp && shortcuts.action(hold(button)) != Action.NONE) main.postDelayed(holdPress, holdMs)
         if (isInputViewShown) flushThen {}
         return true
     }
@@ -575,10 +590,43 @@ class PenIME : InputMethodService(), InkView.Listener {
         val button = pageButton(keyCode)
         if (button == null || keyCode != takenKey) return super.onKeyUp(keyCode, event)
         takenKey = 0
-        if (countOnUp) {
-            PenButtonProbe.record(this, "  up, press ${pressCount + 1}")
-            countPress(button)
+        main.removeCallbacks(holdPress)
+        // How long it was held, as Android saw it (Boox has sent some presses only on release).
+        val heldMs = event.eventTime - event.downTime
+        when {
+            holdRan -> PenButtonProbe.record(this, "  up after $heldMs ms (long press)")
+            countOnUp && heldMs >= holdMs && shortcuts.action(hold(button)) != Action.NONE -> {
+                PenButtonProbe.record(this, "  up after $heldMs ms, long press")
+                if (pressButton != null) finishPress.run()
+                runPress(hold(button))
+            }
+            countOnUp && passOn(keyCode, button) ->
+                PenButtonProbe.record(this, "  up after $heldMs ms, passed on")
+            countOnUp -> {
+                PenButtonProbe.record(this, "  up after $heldMs ms, press ${pressCount + 1}")
+                countPress(button)
+            }
         }
+        holdRan = false
+        return true
+    }
+
+    private fun hold(button: PageButton) =
+        if (button == PageButton.UP) ButtonPress.UP_HOLD else ButtonPress.DOWN_HOLD
+
+    /**
+     * A short press of a button with no press or double press set: the app still gets its
+     * page turn, at once. Page keys only; a volume key passed on would just change
+     * the volume.
+     */
+    private fun passOn(keyCode: Int, button: PageButton): Boolean {
+        if (keyCode != KeyEvent.KEYCODE_PAGE_UP && keyCode != KeyEvent.KEYCODE_PAGE_DOWN) return false
+        val up = button == PageButton.UP
+        val press = if (up) ButtonPress.UP_PRESS else ButtonPress.DOWN_PRESS
+        val double = if (up) ButtonPress.UP_DOUBLE else ButtonPress.DOWN_DOUBLE
+        if (shortcuts.action(press) != Action.NONE || shortcuts.action(double) != Action.NONE) return false
+        if (pressButton != null) finishPress.run()
+        turnPage(if (up) Action.PREVIOUS_PAGE else Action.NEXT_PAGE)
         return true
     }
 
