@@ -575,10 +575,34 @@ class PenIME : InputMethodService(), InkView.Listener {
         val button = pageButton(keyCode)
         if (button == null || keyCode != takenKey) return super.onKeyUp(keyCode, event)
         takenKey = 0
-        if (countOnUp) {
-            PenButtonProbe.record(this, "  up, press ${pressCount + 1}")
-            countPress(button)
+        // How long it was held, as Android saw it: 0 ms on the Go 7, since Boox sends
+        // the press only on release, so the keyboard can't tell a long press. Boox's
+        // own long press can open Pen Keyboard instead (EntryActivity → commands).
+        val heldMs = event.eventTime - event.downTime
+        when {
+            countOnUp && passOn(keyCode, button) ->
+                PenButtonProbe.record(this, "  up after $heldMs ms, passed on")
+            countOnUp -> {
+                PenButtonProbe.record(this, "  up after $heldMs ms, press ${pressCount + 1}")
+                countPress(button)
+            }
         }
+        return true
+    }
+
+    /**
+     * A press of a button with no press or double press set (only tip taps): the app still gets its
+     * page turn, at once. Page keys only; a volume key passed on would just change
+     * the volume.
+     */
+    private fun passOn(keyCode: Int, button: PageButton): Boolean {
+        if (keyCode != KeyEvent.KEYCODE_PAGE_UP && keyCode != KeyEvent.KEYCODE_PAGE_DOWN) return false
+        val up = button == PageButton.UP
+        val press = if (up) ButtonPress.UP_PRESS else ButtonPress.DOWN_PRESS
+        val double = if (up) ButtonPress.UP_DOUBLE else ButtonPress.DOWN_DOUBLE
+        if (shortcuts.action(press) != Action.NONE || shortcuts.action(double) != Action.NONE) return false
+        if (pressButton != null) finishPress.run()
+        turnPage(if (up) Action.PREVIOUS_PAGE else Action.NEXT_PAGE)
         return true
     }
 
